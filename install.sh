@@ -513,7 +513,7 @@ download_binary_release() {
           if unzip -q /tmp/ast-grep.zip -d /tmp/ast-grep 2>/dev/null; then
             # Find ast-grep binary robustly (handles archive structure changes)
             local sg_binary
-            sg_binary=$(find /tmp/ast-grep -name "ast-grep" -o -name "sg" 2>/dev/null | head -1)
+            sg_binary=$(find /tmp/ast-grep \( -name "ast-grep" -o -name "sg" \) -type f 2>/dev/null | head -1)
             if [ -n "$sg_binary" ] && [ -f "$sg_binary" ]; then
               chmod +x "$sg_binary" 2>/dev/null
               mv "$sg_binary" "$install_dir/ast-grep"
