@@ -266,6 +266,115 @@ ast_search_with_context() {
   fi
 }
 
+# Analyze deep property chains and determine which ones are actually gated by explicit if conditions.
+# Emits a JSON blob with unguarded count, suppressed guard matches, and representative samples.
+analyze_deep_property_guards() {
+  local limit=${1:-$DETAIL_LIMIT}
+  if [[ "$HAS_AST_GREP" -ne 1 ]]; then return 1; fi
+  if ! command -v python3 >/dev/null 2>&1; then return 1; fi
+
+  local tmp_props tmp_ifs result
+  tmp_props="$(mktemp -t ubs-deep-props.XXXXXX 2>/dev/null || mktemp -t ubs-deep-props)"
+  tmp_ifs="$(mktemp -t ubs-if-guards.XXXXXX 2>/dev/null || mktemp -t ubs-if-guards)"
+
+  ( set +o pipefail; "${AST_GREP_CMD[@]}" --pattern '$OBJ.$P1.$P2.$P3' "$PROJECT_DIR" --json=stream 2>/dev/null || true ) >"$tmp_props"
+  ( set +o pipefail; "${AST_GREP_CMD[@]}" --pattern 'if ($COND) $BODY' "$PROJECT_DIR" --json=stream 2>/dev/null || true ) >"$tmp_ifs"
+
+  result=$(python3 - "$tmp_props" "$tmp_ifs" "$limit" <<'PY'
+import json, sys
+from collections import defaultdict
+
+def load_stream(path):
+    entries = []
+    try:
+        with open(path, 'r', encoding='utf-8') as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    except FileNotFoundError:
+        return entries
+    return entries
+
+matches_path, guards_path, limit_raw = sys.argv[1:4]
+limit = int(limit_raw)
+matches = load_stream(matches_path)
+guards = load_stream(guards_path)
+
+def as_pos(data):
+    return (data.get('line', 0), data.get('column', 0))
+
+def ge(a, b):
+    return a[0] > b[0] or (a[0] == b[0] and a[1] >= b[1])
+
+def le(a, b):
+    return a[0] < b[0] or (a[0] == b[0] and a[1] <= b[1])
+
+def within(target, guard):
+    start, end = target
+    g_start, g_end = guard
+    return ge(start, g_start) and le(end, g_end)
+
+guards_by_file = defaultdict(list)
+for guard in guards:
+    file_path = guard.get('file')
+    cond = guard.get('metaVariables', {}).get('single', {}).get('COND')
+    if not file_path or not cond:
+        continue
+    rng = cond.get('range') or {}
+    start = rng.get('start')
+    end = rng.get('end')
+    if not start or not end:
+        continue
+    guards_by_file[file_path].append((as_pos(start), as_pos(end)))
+
+unguarded = 0
+guarded = 0
+samples = []
+
+for match in matches:
+    file_path = match.get('file')
+    rng = match.get('range') or {}
+    start = rng.get('start')
+    end = rng.get('end')
+    if not file_path or not start or not end:
+        continue
+    start_pos = as_pos(start)
+    end_pos = as_pos(end)
+    guard_hits = guards_by_file.get(file_path, [])
+    is_guarded = any(within((start_pos, end_pos), guard) for guard in guard_hits)
+    if is_guarded:
+        guarded += 1
+        continue
+    unguarded += 1
+    if len(samples) < limit:
+        snippet = (match.get('lines') or '').strip()
+        samples.append({'file': file_path, 'line': start_pos[0] + 1, 'code': snippet})
+
+print(json.dumps({'unguarded': unguarded, 'guarded': guarded, 'samples': samples}, ensure_ascii=False))
+PY
+  )
+
+  rm -f "$tmp_props" "$tmp_ifs"
+  printf '%s' "$result"
+}
+show_ast_samples_from_json() {
+  local blob=$1
+  [[ -n "$blob" ]] || return 0
+  if ! command -v jq >/dev/null 2>&1; then return 0; fi
+  jq -cr '.samples[]?' <<<"$blob" | while IFS= read -r sample; do
+    local file line code
+    file=$(printf '%s' "$sample" | jq -r '.file')
+    line=$(printf '%s' "$sample" | jq -r '.line')
+    code=$(printf '%s' "$sample" | jq -r '.code')
+    print_code_sample "$file" "$line" "$code"
+  done
+}
+
 write_ast_rules() {
   [[ "$HAS_AST_GREP" -eq 1 ]] || return 0
   AST_RULE_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t ag_rules.XXXXXX)"
@@ -486,25 +595,41 @@ should_skip() {
 maybe_clear
 
 echo -e "${BOLD}${CYAN}"
-cat << 'BANNER'
-╔══════════════════════════════════════════════════════════════════════╗
-║                                                                      ║
-║  ██╗   ██╗██╗  ████████╗██╗███╗   ███╗ █████╗ ████████╗███████╗    ║
-║  ██║   ██║██║  ╚══██╔══╝██║████╗ ████║██╔══██╗╚══██╔══╝██╔════╝    ║
-║  ██║   ██║██║     ██║   ██║██╔████╔██║███████║   ██║   █████╗      ║
-║  ██║   ██║██║     ██║   ██║██║╚██╔╝██║██╔══██║   ██║   ██╔══╝      ║
-║  ╚██████╔╝███████╗██║   ██║██║ ╚═╝ ██║██║  ██║   ██║   ███████╗    ║
-║   ╚═════╝ ╚══════╝╚═╝   ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝    ║
-║                                                                      ║
-BANNER
-echo -e "║         ${BOLD}${GREEN}🔬 BUG SCANNER${RESET}${BOLD}${CYAN} v4.4 ${BLUE}━━━━━━━━━━━━━━━━━━━━━━━${CYAN}         ║"
-cat << 'BANNER'
-║                                                                      ║
-║       🎯 Industrial-Grade JavaScript/TypeScript Analysis 🎯         ║
-║          Powered by AST-Grep + Semantic Pattern Matching            ║
-║              Catch 1000+ Bug Patterns Before Production             ║
-║                                                                      ║
-╚══════════════════════════════════════════════════════════════════════╝
+cat <<'BANNER'
+╔═══════════════════════════════════════════════════════════════════╗
+║  ██╗   ██╗██╗  ████████╗██╗███╗   ███╗ █████╗ ████████╗███████╗   ║
+║  ██║   ██║██║  ╚══██╔══╝██║████╗ ████║██╔══██╗╚══██╔══╝██╔════╝   ║
+║  ██║   ██║██║     ██║   ██║██╔████╔██║███████║   ██║   █████╗     ║
+║  ██║   ██║██║     ██║   ██║██║╚██╔╝██║██╔══██║   ██║   ██╔══╝     ║
+║  ╚██████╔╝███████╗██║   ██║██║ ╚═╝ ██║██║  ██║   ██║   ███████╗   ║
+║   ╚═════╝ ╚══════╝╚═╝   ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝   ║
+║                                                                   ║
+║  ██████╗ ██╗   ██╗ ██████╗          ████████████████████████      ║
+║  ██╔══██╗██║   ██║██╔════╝          ████████████████████████      ║
+║  ██████╔╝██║   ██║██║  ███╗         ████████████████████████      ║
+║  ██╔══██╗██║   ██║██║   ██║         ██████████  ████    ████      ║
+║  ██████╔╝╚██████╔╝╚██████╔╝         ██████████  ██  ████████      ║
+║  ╚═════╝  ╚═════╝  ╚═════╝          ██████████  ████    ████      ║
+║                                     ██████████  ████████  ██      ║
+║                                     ██████████  ██  ████  ██      ║
+║                                     ██████    ██████    ████      ║
+║                                     ████████████████████████      ║
+║                                                                   ║
+║  ███████╗  ██████╗   █████╗ ███╗   ██╗███╗   ██╗███████╗██████╗   ║
+║  ██╔════╝  ██╔═══╝  ██╔══██╗████╗  ██║████╗  ██║██╔════╝██╔══██╗  ║
+║  ███████╗  ██║      ███████║██╔██╗ ██║██╔██╗ ██║█████╗  ██████╔╝  ║
+║  ╚════██║  ██║      ██╔══██║██║╚██╗██║██║╚██╗██║██╔══╝  ██╔══██╗  ║
+║  ███████║  ██████╗  ██║  ██║██║ ╚████║██║ ╚████║███████╗██║  ██║  ║
+║  ╚══════╝  ╚═════╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝       ║
+║                                                                   ║
+║  JavaScript/TypeScript sentinel • DOM, async, security heuristics ║
+║  UBS module: js • AST-grep signal • multi-agent guardrail ready   ║
+║  ASCII homage: aemkei hexagon JS logo                             ║
+║  Run standalone: modules/ubs-js.sh --help                         ║
+║                                                                   ║
+║  Night Owl QA                                                     ║
+║  “We see bugs before you do.”                                     ║
+╚═══════════════════════════════════════════════════════════════════╝
 BANNER
 echo -e "${RESET}"
 
@@ -582,14 +707,46 @@ if [ "$count" -gt 15 ]; then
 fi
 
 print_subheader "Accessing nested properties without guards"
-count=$(
-  ast_search '$X.$Y.$Z.$W' \
-  || ( "${GREP_RN[@]}" -e "\.[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*" "$PROJECT_DIR" 2>/dev/null || true ) | count_lines
-)
+deep_guard_json=""
+guarded_inside=0
+count=
+if [[ "$HAS_AST_GREP" -eq 1 ]]; then
+  deep_guard_json=$(analyze_deep_property_guards "$DETAIL_LIMIT")
+  if [[ -n "$deep_guard_json" ]]; then
+    if command -v jq >/dev/null 2>&1; then
+      count=$(jq -r '.unguarded // 0' <<<"$deep_guard_json")
+      guarded_inside=$(jq -r '.guarded // 0' <<<"$deep_guard_json")
+    else
+      deep_guard_json=""
+    fi
+  fi
+fi
+if [[ -z "${count:-}" ]]; then
+  count=$(
+    ast_search '$X.$Y.$Z.$W' \
+    || ( "${GREP_RN[@]}" -e "\.[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*" "$PROJECT_DIR" 2>/dev/null || true ) | count_lines
+  )
+  guarded_inside=0
+fi
+
 if [ "$count" -gt 20 ]; then
   print_finding "warning" "$count" "Deep property access - high crash risk" "Consider obj?.prop1?.prop2?.prop3 or explicit guards"
+  if [[ -n "$deep_guard_json" ]]; then
+    show_ast_samples_from_json "$deep_guard_json"
+  else
+    show_detailed_finding "\.[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*" 3
+  fi
 elif [ "$count" -gt 0 ]; then
   print_finding "info" "$count" "Deep property access detected"
+  if [[ -n "$deep_guard_json" ]]; then
+    show_ast_samples_from_json "$deep_guard_json"
+  fi
+elif [ "$guarded_inside" -gt 0 ]; then
+  print_finding "good" "$guarded_inside" "Deep property chains are guarded" "Scanner suppressed chains that live inside explicit if checks"
+fi
+
+if [[ -n "$deep_guard_json" && "$guarded_inside" -gt 0 ]]; then
+  say "    ${DIM}Suppressed $guarded_inside guarded chain(s) detected inside if conditions${RESET}"
 fi
 fi
 
