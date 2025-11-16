@@ -26,6 +26,7 @@ WARN="${YELLOW}⚠${RESET}"
 # Flags
 NON_INTERACTIVE=0
 SKIP_AST_GREP=0
+SKIP_RIPGREP=0
 SKIP_HOOKS=0
 INSTALL_DIR=""
 
@@ -164,6 +165,75 @@ install_ast_grep() {
     return 0
   else
     error "ast-grep installation failed"
+    return 1
+  fi
+}
+
+check_ripgrep() {
+  if command -v rg >/dev/null 2>&1; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+install_ripgrep() {
+  local platform
+  platform="$(detect_platform)"
+
+  log "Installing ripgrep..."
+
+  case "$platform" in
+    macos)
+      if command -v brew >/dev/null 2>&1; then
+        brew install ripgrep
+      else
+        error "Homebrew not found. Please install from: https://github.com/BurntSushi/ripgrep#installation"
+        return 1
+      fi
+      ;;
+    linux)
+      # Try package managers in order of preference
+      if command -v cargo >/dev/null 2>&1; then
+        cargo install ripgrep
+      elif command -v apt-get >/dev/null 2>&1; then
+        sudo apt-get update && sudo apt-get install -y ripgrep
+      elif command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y ripgrep
+      elif command -v pacman >/dev/null 2>&1; then
+        sudo pacman -S --noconfirm ripgrep
+      elif command -v snap >/dev/null 2>&1; then
+        sudo snap install ripgrep --classic
+      else
+        warn "No supported package manager found"
+        log "Download from: https://github.com/BurntSushi/ripgrep/releases"
+        return 1
+      fi
+      ;;
+    windows)
+      if command -v cargo >/dev/null 2>&1; then
+        cargo install ripgrep
+      elif command -v scoop >/dev/null 2>&1; then
+        scoop install ripgrep
+      elif command -v choco >/dev/null 2>&1; then
+        choco install ripgrep
+      else
+        warn "Install Rust/Cargo, Scoop, or Chocolatey"
+        log "Download from: https://github.com/BurntSushi/ripgrep/releases"
+        return 1
+      fi
+      ;;
+    *)
+      error "Unknown platform. Install manually from: https://github.com/BurntSushi/ripgrep#installation"
+      return 1
+      ;;
+  esac
+
+  if check_ripgrep; then
+    success "ripgrep installed successfully"
+    return 0
+  else
+    error "ripgrep installation failed"
     return 1
   fi
 }
@@ -411,6 +481,10 @@ main() {
         SKIP_AST_GREP=1
         shift
         ;;
+      --skip-ripgrep)
+        SKIP_RIPGREP=1
+        shift
+        ;;
       --skip-hooks)
         SKIP_HOOKS=1
         shift
@@ -433,6 +507,7 @@ main() {
         echo "Options:"
         echo "  --non-interactive    Skip all prompts (use defaults)"
         echo "  --skip-ast-grep      Skip ast-grep installation"
+        echo "  --skip-ripgrep       Skip ripgrep installation"
         echo "  --skip-hooks         Skip hook setup"
         echo "  --install-dir DIR    Custom installation directory"
         echo "  --setup-git-hook     Only set up git hook (no install)"
@@ -460,6 +535,18 @@ main() {
     echo ""
   else
     success "ast-grep is installed"
+    echo ""
+  fi
+
+  # Check for ripgrep
+  if ! check_ripgrep && [ "$SKIP_RIPGREP" -eq 0 ]; then
+    warn "ripgrep not found (required for optimal performance)"
+    if ask "Install ripgrep now?"; then
+      install_ripgrep || warn "Continuing without ripgrep (may use slower grep fallback)"
+    fi
+    echo ""
+  else
+    success "ripgrep is installed"
     echo ""
   fi
 
