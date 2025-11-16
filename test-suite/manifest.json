@@ -1,0 +1,134 @@
+{
+  "version": 1,
+  "defaults": {
+    "ubs_bin": "../ubs",
+    "args": ["--format=json", "--ci"],
+    "env": {
+      "NO_COLOR": "1"
+    },
+    "artifacts_dir": "artifacts"
+  },
+  "cases": [
+    {
+      "id": "js-core-buggy",
+      "description": "Top-level JS regression bucket with 20 legacy bug patterns.",
+      "path": "test-suite/buggy",
+      "language": "js",
+      "tags": ["js", "core", "buggy"],
+      "args": ["--only=js"],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "critical": {"min": 1},
+          "warning": {"min": 1}
+        }
+      }
+    },
+    {
+      "id": "js-core-clean",
+      "description": "Top-level JS clean fixtures (should stay quiet).",
+      "path": "test-suite/clean",
+      "language": "js",
+      "tags": ["js", "core", "clean"],
+      "args": ["--only=js"],
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "critical": {"max": 0},
+          "warning": {"max": 0}
+        }
+      }
+    },
+    {
+      "id": "js-module-buggy",
+      "description": "module-specific buggy security fixture under test-suite/js/buggy.",
+      "path": "test-suite/js/buggy",
+      "language": "js",
+      "tags": ["js", "module", "buggy"],
+      "args": ["--only=js"],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "critical": {"min": 1},
+          "warning": {"min": 1}
+        }
+      }
+    },
+    {
+      "id": "js-module-clean",
+      "description": "module-specific clean fixture (allows single warning until tuned).",
+      "path": "test-suite/js/clean",
+      "language": "js",
+      "tags": ["js", "module", "clean"],
+      "args": ["--only=js"],
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "critical": {"max": 0},
+          "warning": {"max": 1}
+        }
+      }
+    },
+    {
+      "id": "js-node-buggy",
+      "description": "Express/Node buggy API sample with many security issues.",
+      "path": "test-suite/frameworks/node/buggy-api.js",
+      "language": "js",
+      "tags": ["js", "framework", "node", "buggy"],
+      "args": ["--only=js", "--fail-on-warning"],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "critical": {"min": 1},
+          "warning": {"min": 10}
+        }
+      }
+    },
+    {
+      "id": "js-node-clean",
+      "description": "Express/Node clean API sample (should stay quiet).",
+      "path": "test-suite/frameworks/node/clean-api.js",
+      "language": "js",
+      "tags": ["js", "framework", "node", "clean"],
+      "args": ["--only=js"],
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "critical": {"max": 0},
+          "warning": {"max": 0}
+        }
+      }
+    },
+    {
+      "id": "python-buggy",
+      "description": "Python buggy fixtures (enable once python module assertions stabilize).",
+      "path": "test-suite/python/buggy",
+      "language": "python",
+      "tags": ["python", "buggy"],
+      "enabled": false,
+      "skip_reason": "Python module still under development; counts are noisy.",
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "critical": {"min": 1}
+        }
+      }
+    },
+    {
+      "id": "python-clean",
+      "description": "Python clean fixtures (baseline for zero findings).",
+      "path": "test-suite/python/clean",
+      "language": "python",
+      "tags": ["python", "clean"],
+      "enabled": false,
+      "skip_reason": "Need stable python module output before asserting clean pass.",
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "critical": {"max": 0},
+          "warning": {"max": 0}
+        }
+      }
+    }
+  ]
+}
