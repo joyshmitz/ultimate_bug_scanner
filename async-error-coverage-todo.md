@@ -1,9 +1,57 @@
 # Async Error Path Coverage TODO
 
-1. ✅ Re-read PLAN_FOR_NEXT_FEATURES to capture requirements for async error path coverage and identify per-language targets.
-2. ☐ Define shared abstraction/signature for async error coverage (e.g., `ASYNC_ERROR_RULE_IDS`, helper output) mirroring lifecycle work. *(JS/Python implemented; remaining modules pending.)*
-3. ☐ Implement ast-grep rules for async error handling in each module (js, python, golang, cpp, rust, java, ruby) plus fallback heuristics, keeping structure identical across modules. *(JS/Python done; other modules pending.)*
-4. ☐ Add/update buggy fixtures demonstrating missing async error handling and clean fixtures showing proper patterns.
-5. ☐ Extend test-suite manifest with async error path cases per language.
-6. ☐ Run UBS targeted scans (or manifest runner) to confirm new rules fire and integrate cleanly.
-7. ☐ Mark TODO entries complete as progress continues.
+## Research & Planning
+- [x] Re-read PLAN_FOR_NEXT_FEATURES and capture async error path requirements.
+- [x] Identify desired shared helper shape (rule id metadata arrays + `run_async_error_checks`).
+- [x] Confirm per-language async patterns + severity/remediation strings captured in TODO for quick review updates.
+
+## Implementation Tracking
+### JavaScript
+- [x] Define ASYNC_ERROR_RULE_IDS/SUMMARY/REMEDIATION/SEVERITY.
+- [x] Implement ast-grep rule pack (await outside try/catch, Promise.then w/out catch, Promise.all w/out try).
+- [x] Wire `run_async_error_checks` and call near async category.
+
+### Python
+- [x] Define metadata arrays.
+- [x] Add ast-grep rules (await outside try/except, asyncio.create_task not awaited/cancelled).
+- [x] Wire helper + call near async coverage.
+
+### Go
+- [x] Define metadata arrays.
+- [x] Add ast-grep rule for goroutine ignoring errors / lacking error channel send.
+- [x] Wire helper + call after concurrency checks.
+
+### C++
+- [x] Define metadata arrays.
+- [x] Add ast-grep rules (std::async outside try/catch, std::future never get/wait).
+- [x] Wire helper + call.
+
+### Rust
+- [x] Define metadata arrays.
+- [x] Add ast-grep rules (await without match/? handling, tokio::spawn handle dropped).
+- [x] Wire helper + call.
+
+### Java
+- [x] Define metadata arrays.
+- [x] Add ast-grep rules (CompletableFuture get/join without try/catch, then* without exceptionally/handle).
+- [x] Wire helper + call.
+
+### Ruby
+- [x] Define metadata arrays.
+- [x] Add ast-grep rules (Thread.new body lacking rescue).
+- [x] Wire helper + call.
+
+## Fixtures & Tests
+- [ ] Add failing/clean fixtures for JS.
+- [ ] Add failing/clean fixtures for Python.
+- [ ] Add failing/clean fixtures for Go.
+- [ ] Add failing/clean fixtures for C++.
+- [ ] Add failing/clean fixtures for Rust.
+- [ ] Add failing/clean fixtures for Java.
+- [ ] Add failing/clean fixtures for Ruby.
+- [ ] Update test-suite/manifest.json with new cases per language (covering fail + clean expectations, threshold counts).
+- [ ] Run targeted UBS manifest(s) to validate new checks fire; capture summary in notes/issue.
+
+## Documentation / Handoff
+- [ ] Mention TODO status in final summary and update file as tasks complete.
+- [ ] Close issue ultimate_bug_scanner-e3j once scanner + tests + manifest updates done and UBS run clean.
