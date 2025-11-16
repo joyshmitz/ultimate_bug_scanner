@@ -82,6 +82,21 @@ JAVA_REQUIRED_MAJOR=21
 JAVA_VERSION_STR=""
 JAVA_MAJOR=0
 
+# Async error coverage metadata
+ASYNC_ERROR_RULE_IDS=(java.async.future-get-no-try java.async.then-no-exceptionally)
+declare -A ASYNC_ERROR_SUMMARY=(
+  [java.async.future-get-no-try]='CompletableFuture get()/join() without try/catch'
+  [java.async.then-no-exceptionally]='CompletableFuture chains missing exceptionally()/handle()'
+)
+declare -A ASYNC_ERROR_REMEDIATION=(
+  [java.async.future-get-no-try]='Wrap blocking future.get()/join() calls in try/catch to handle ExecutionException'
+  [java.async.then-no-exceptionally]='Attach .exceptionally(...) or .handle(...) to promise chains to surface errors'
+)
+declare -A ASYNC_ERROR_SEVERITY=(
+  [java.async.future-get-no-try]='warning'
+  [java.async.then-no-exceptionally]='warning'
+)
+
 print_usage() {
   cat >&2 <<USAGE
 Usage: $(basename "$0") [options] [PROJECT_DIR] [OUTPUT_FILE]
@@ -337,6 +352,92 @@ run_resource_lifecycle_checks() {
   if [[ $header_shown -eq 0 ]]; then
     print_subheader "Resource lifecycle correlation"
     print_finding "good" "All tracked resource acquisitions have matching cleanups"
+  fi
+}
+
+run_async_error_checks() {
+  print_subheader "Async error path coverage"
+  if [[ "$HAS_AST_GREP" -ne 1 ]]; then
+    print_finding "info" 0 "ast-grep not available" "Install ast-grep to analyze CompletableFuture error handling"
+    return
+  fi
+  local rule_file tmp_json
+  rule_file="$(mktemp 2>/dev/null || mktemp -t java_async_rules.XXXXXX)"
+  cat >"$rule_file" <<'YAML'
+rules:
+  - id: java.async.future-get-no-try
+    language: java
+    rule:
+      pattern: $F.get()
+      not:
+        inside:
+          kind: try_statement
+  - id: java.async.then-no-exceptionally
+    language: java
+    rule:
+      any:
+        - pattern: $CF.thenApply($ARGS)
+        - pattern: $CF.thenCompose($ARGS)
+        - pattern: $CF.thenAccept($ARGS)
+      not:
+        has:
+          pattern: .exceptionally($HANDLER)
+YAML
+  tmp_json="$(mktemp 2>/dev/null || mktemp -t java_async_matches.XXXXXX)"
+  if ! "${AST_GREP_CMD[@]}" scan -r "$rule_file" "$PROJECT_DIR" --json >"$tmp_json" 2>/div/null; then
+    rm -f "$rule_file" "$tmp_json"
+    print_finding "info" 0 "ast-grep scan failed" "Unable to compute async error coverage"
+    return
+  fi
+  rm -f "$rule_file"
+  if ! [[ -s "$tmp_json" ]]; then
+    rm -f "$tmp_json"
+    print_finding "good" "CompletableFuture usage appears guarded"
+    return
+  fi
+  local printed=0
+  while IFS=$'\t' read -r rid count samples; do
+    [[ -z "$rid" ]] && continue
+    printed=1
+    local severity=${ASYNC_ERROR_SEVERITY[$rid]:-warning}
+    local summary=${ASYNC_ERROR_SUMMARY[$rid]:-$rid}
+    local desc=${ASYNC_ERROR_REMEDIATION[$rid]:-"Handle async exceptions"}
+    if [[ -n "$samples" ]]; then
+      desc+=" (e.g., $samples)"
+    fi
+    print_finding "$severity" "$count" "$summary" "$desc"
+  done < <(python3 - "$tmp_json" <<'PY'
+import json, sys
+from collections import OrderedDict
+path = sys.argv[1]
+stats = OrderedDict()
+with open(path, 'r', encoding='utf-8') as fh:
+    for line in fh:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        rid = obj.get('rule_id') or obj.get('id')
+        if not rid:
+            continue
+        rng = obj.get('range') or {}
+        start = rng.get('start') or {}
+        line_no = start.get('row', 0) + 1
+        file_path = obj.get('file', '?')
+        entry = stats.setdefault(rid, {'count': 0, 'samples': []})
+        entry['count'] += 1
+        if len(entry['samples']) < 3:
+            entry['samples'].append(f"{file_path}:{line_no}")
+for rid, data in stats.items():
+    print(f"{rid}\t{data['count']}\t{','.join(data['samples'])}")
+PY
+)
+  rm -f "$tmp_json"
+  if [[ $printed -eq 0 ]]; then
+    print_finding "good" "CompletableFuture usage appears guarded"
   fi
 }
 
@@ -971,6 +1072,8 @@ if [ "$sleep_sync" -gt 0 ]; then print_finding "info" "$sleep_sync" "Thread.slee
 print_subheader "notify() usage"
 notify_count=$(( $(ast_search '$O.notify()' || echo 0) + $("${GREP_RN[@]}" -e "\.notify\(\)" "$PROJECT_DIR" 2>/dev/null | count_lines || true) ))
 if [ "$notify_count" -gt 0 ]; then print_finding "info" "$notify_count" "notify() calls detected - ensure correct semantics"; fi
+
+run_async_error_checks
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════

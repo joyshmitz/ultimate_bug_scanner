@@ -64,6 +64,21 @@ SCAN_HIDDEN=0
 MAX_FILESIZE=""
 PATHS_FILE=""
 
+# Async error coverage metadata
+ASYNC_ERROR_RULE_IDS=(cpp.async.std-async-no-try cpp.async.future-no-get)
+declare -A ASYNC_ERROR_SUMMARY=(
+  [cpp.async.std-async-no-try]='std::async call outside try/catch'
+  [cpp.async.future-no-get]='std::future never get()/wait()'
+)
+declare -A ASYNC_ERROR_REMEDIATION=(
+  [cpp.async.std-async-no-try]='Wrap std::async usage in try/catch to surface exceptions'
+  [cpp.async.future-no-get]='Call future.get()/wait() (ideally inside try/catch) to observe errors'
+)
+declare -A ASYNC_ERROR_SEVERITY=(
+  [cpp.async.std-async-no-try]='warning'
+  [cpp.async.future-no-get]='warning'
+)
+
 print_usage() {
   cat >&2 <<USAGE
 Usage: $(basename "$0") [options] [PROJECT_DIR] [OUTPUT_FILE]
@@ -327,6 +342,89 @@ run_resource_lifecycle_checks() {
   if [[ $header_shown -eq 0 ]]; then
     print_subheader "Resource lifecycle correlation"
     print_finding "good" "All tracked resource acquisitions have matching cleanups"
+  fi
+}
+
+run_async_error_checks() {
+  print_subheader "Async error path coverage"
+  if [[ "$HAS_AST_GREP" -ne 1 ]]; then
+    print_finding "info" 0 "ast-grep not available" "Install ast-grep to analyze std::async usage"
+    return
+  fi
+  local rule_file tmp_json
+  rule_file="$(mktemp 2>/dev/null || mktemp -t cpp_async_rules.XXXXXX)"
+  cat >"$rule_file" <<'YAML'
+rules:
+  - id: cpp.async.std-async-no-try
+    language: cpp
+    rule:
+      pattern: std::async($ARGS)
+      not:
+        inside:
+          kind: try_statement
+  - id: cpp.async.future-no-get
+    language: cpp
+    rule:
+      pattern: std::future<$T> $F = std::async($ARGS);
+      not:
+        has:
+          pattern: $F.get()
+YAML
+  tmp_json="$(mktemp 2>/dev/null || mktemp -t cpp_async_matches.XXXXXX)"
+  if ! "${AST_GREP_CMD[@]}" scan -r "$rule_file" "$PROJECT_DIR" --json >"$tmp_json" 2>/dev/null; then
+    rm -f "$rule_file" "$tmp_json"
+    print_finding "info" 0 "ast-grep scan failed" "Unable to compute async error coverage"
+    return
+  fi
+  rm -f "$rule_file"
+  if ! [[ -s "$tmp_json" ]]; then
+    rm -f "$tmp_json"
+    print_finding "good" "std::async usage appears guarded"
+    return
+  fi
+  local printed=0
+  while IFS=$'\t' read -r rid count samples; do
+    [[ -z "$rid" ]] && continue
+    printed=1
+    local severity=${ASYNC_ERROR_SEVERITY[$rid]:-warning}
+    local summary=${ASYNC_ERROR_SUMMARY[$rid]:-$rid}
+    local desc=${ASYNC_ERROR_REMEDIATION[$rid]:-"Handle async exceptions"}
+    if [[ -n "$samples" ]]; then
+      desc+=" (e.g., $samples)"
+    fi
+    print_finding "$severity" "$count" "$summary" "$desc"
+  done < <(python3 - "$tmp_json" <<'PY'
+import json, sys
+from collections import OrderedDict
+path = sys.argv[1]
+stats = OrderedDict()
+with open(path, 'r', encoding='utf-8') as fh:
+    for line in fh:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        rid = obj.get('rule_id') or obj.get('id')
+        if not rid:
+            continue
+        rng = obj.get('range') or {}
+        start = rng.get('start') or {}
+        line_no = start.get('row', 0) + 1
+        file_path = obj.get('file', '?')
+        entry = stats.setdefault(rid, {'count': 0, 'samples': []})
+        entry['count'] += 1
+        if len(entry['samples']) < 3:
+            entry['samples'].append(f"{file_path}:{line_no}")
+for rid, data in stats.items():
+    print(f"{rid}\t{data['count']}\t{','.join(data['samples'])}")
+PY
+)
+  rm -f "$tmp_json"
+  if [[ $printed -eq 0 ]]; then
+    print_finding "good" "std::async usage appears guarded"
   fi
 }
 
@@ -917,6 +1015,8 @@ if [ "$count" -gt 0 ]; then print_finding "info" "$count" "Async without policy 
 print_subheader "Weak memory-order usage"
 count=$("${GREP_RN[@]}" -e "memory_order_relaxed|memory_order_consume" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
 if [ "$count" -gt 0 ]; then print_finding "info" "$count" "Weak memory order in atomics - verify correctness"; fi
+
+run_async_error_checks
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
