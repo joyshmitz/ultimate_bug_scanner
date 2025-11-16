@@ -1,20 +1,23 @@
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::thread;
 
-async fn fetch_once(id: u32) -> Result<String, Box<dyn std::error::Error>> {
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    Ok(format!("{}", id))
+fn worker(counter: Arc<Mutex<u32>>) {
+    let mut guard = counter.lock().expect("lock poisoned");
+    *guard += 1;
 }
 
-async fn process(ids: Vec<u32>) -> Result<(), Box<dyn std::error::Error>> {
-    let futures = ids.into_iter().map(fetch_once);
-    for output in futures::future::try_join_all(futures).await? {
-        println!("{}", output);
+fn main() {
+    let counter = Arc::new(Mutex::new(0));
+    let mut handles = Vec::new();
+
+    for _ in 0..4 {
+        let clone = Arc::clone(&counter);
+        handles.push(thread::spawn(move || worker(clone)));
     }
-    Ok(())
-}
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(process(vec![1,2,3]))?;
-    Ok(())
+    for h in handles {
+        h.join().expect("thread failed");
+    }
+
+    println!("count={}", counter.lock().unwrap());
 }
