@@ -96,6 +96,12 @@ ensure_dir(){ mkdir -p "$1" 2>/dev/null || { say "${RED}$X cannot create $1${RES
 
 script_dir(){ local src="${BASH_SOURCE[0]}"; while [ -h "$src" ]; do src="$(readlink "$src")"; done; cd -P "$(dirname "$src")" && pwd; }
 
+prepare_metrics_dir(){
+  local dir="$1"
+  rm -rf "$dir" 2>/dev/null || true
+  mkdir -p "$dir" 2>/dev/null || true
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Language catalog
 # ─────────────────────────────────────────────────────────────────────────────
@@ -258,6 +264,7 @@ run_lang(){
   local out_sarif="$TMPDIR_RUN/$lang.sarif"
   local err="$TMPDIR_RUN/$lang.err"
   local status_file="$TMPDIR_RUN/$lang.status"
+  local metrics_dir="$TMPDIR_RUN/$lang.metrics"
   local module_status=0
 
   local args=("$PROJECT_DIR" "--ci")
@@ -267,42 +274,52 @@ run_lang(){
 
   case "$fmt" in
     json)
-      if "$module" "${args[@]}" --format=json >"$out_json" 2>"$err"; then
+      prepare_metrics_dir "$metrics_dir"
+      if UBS_METRICS_DIR="$metrics_dir" UBS_LANG="$lang" "$module" "${args[@]}" --format=json >"$out_json" 2>"$err"; then
         module_status=$?
         if need_cmd jq && jq -e . "$out_json" >/dev/null 2>&1; then
           jq --arg language "$lang" '. + {language: $language}' "$out_json" > "$out_json.tmp" && mv "$out_json.tmp" "$out_json"
+          attach_metrics_to_json "$out_json" "$metrics_dir"
           echo "$module_status" >"$status_file"
           return 0
         fi
       else
         module_status=$?
       fi
-      if ! "$module" "${args[@]}" >"$out_txt" 2>>"$err"; then
+      prepare_metrics_dir "$metrics_dir"
+      if ! UBS_METRICS_DIR="$metrics_dir" UBS_LANG="$lang" "$module" "${args[@]}" >"$out_txt" 2>>"$err"; then
         module_status=$?
       fi
       parse_text_to_json "$lang" "$out_txt" "$out_json"
+      attach_metrics_to_json "$out_json" "$metrics_dir"
       ;;
     sarif)
-      if "$module" "${args[@]}" --format=sarif >"$out_sarif" 2>"$err"; then
+      prepare_metrics_dir "$metrics_dir"
+      if UBS_METRICS_DIR="$metrics_dir" UBS_LANG="$lang" "$module" "${args[@]}" --format=sarif >"$out_sarif" 2>"$err"; then
         module_status=$?
         if need_cmd jq && jq -e . "$out_sarif" >/dev/null 2>&1; then
+          attach_metrics_to_json "$out_json" "$metrics_dir" 2>/dev/null || true
           echo "$module_status" >"$status_file"
           return 0
         fi
       else
         module_status=$?
       fi
-      if ! "$module" "${args[@]}" >"$out_txt" 2>>"$err"; then
+      prepare_metrics_dir "$metrics_dir"
+      if ! UBS_METRICS_DIR="$metrics_dir" UBS_LANG="$lang" "$module" "${args[@]}" >"$out_txt" 2>>"$err"; then
         module_status=$?
       fi
       minimal_sarif_from_text "$lang" "$out_txt" >"$out_sarif"
       parse_text_to_json "$lang" "$out_txt" "$out_json"
+      attach_metrics_to_json "$out_json" "$metrics_dir"
       ;;
     text|*)
-      if ! "$module" "${args[@]}" >"$out_txt" 2>"$err"; then
+      prepare_metrics_dir "$metrics_dir"
+      if ! UBS_METRICS_DIR="$metrics_dir" UBS_LANG="$lang" "$module" "${args[@]}" >"$out_txt" 2>"$err"; then
         module_status=$?
       fi
       parse_text_to_json "$lang" "$out_txt" "$out_json"
+      attach_metrics_to_json "$out_json" "$metrics_dir"
       ;;
   esac
 
@@ -314,7 +331,7 @@ parse_text_to_json(){
   local lang="$1" txt="$2" json="$3"
   local critical=0 warning=0 info=0 files=0
   # Strip ANSI, normalize
-  local cleaned; cleaned="$(sed -E 's/\x1B\[[0-9;]*[mK]//g' "$txt" | tr -d '\r')"
+  local cleaned; cleaned="$(sed -E 's/\x1B\[[0-9;]*[mK]//g' "$txt" | tr -d '\r\0')"
   critical=$(printf '%s\n' "$cleaned" | grep -E 'Critical issues:|CRITICAL' | grep -Eo '[0-9]+' | tail -n1 || true)
   warning=$(printf '%s\n' "$cleaned" | grep -E 'Warning issues:|Warning' | grep -Eo '[0-9]+' | tail -n1 || true)
   info=$(printf '%s\n' "$cleaned" | grep -E 'Info items:|Info' | grep -Eo '[0-9]+' | tail -n1 || true)
@@ -323,6 +340,36 @@ parse_text_to_json(){
   cat >"$json" <<JSON
 {"language":"$lang","project":"$PROJECT_DIR","files":$files,"critical":$critical,"warning":$warning,"info":$info,"timestamp":"$(date_iso)"}
 JSON
+}
+
+attach_metrics_to_json(){
+  local json_path="$1" metrics_dir="$2"
+  [[ -f "$json_path" ]] || return 0
+  [[ -d "$metrics_dir" ]] || return 0
+  local files=()
+  while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$metrics_dir" -maxdepth 1 -type f -name '*.json' -print0 2>/dev/null)
+  [[ ${#files[@]} -gt 0 ]] || return 0
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$json_path" "${files[@]}" <<'PY'
+import json, sys
+from pathlib import Path
+
+json_path = Path(sys.argv[1])
+with json_path.open() as fh:
+    data = json.load(fh)
+extras = data.get("extras", {})
+for extra_path in map(Path, sys.argv[2:]):
+    try:
+        payload = json.loads(extra_path.read_text())
+    except Exception:
+        continue
+    if isinstance(payload, dict):
+        extras.update(payload)
+if extras:
+    data["extras"] = extras
+    json_path.write_text(json.dumps(data))
+PY
+  fi
 }
 
 minimal_sarif_from_text(){
