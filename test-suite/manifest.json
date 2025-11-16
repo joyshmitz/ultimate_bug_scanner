@@ -2,7 +2,9 @@
   "version": 1,
   "defaults": {
     "ubs_bin": "../ubs",
-    "args": ["--ci"],
+    "args": [
+      "--ci"
+    ],
     "env": {
       "NO_COLOR": "1"
     },
@@ -14,13 +16,23 @@
       "description": "Top-level JS regression bucket with 20 legacy bug patterns.",
       "path": "test-suite/buggy",
       "language": "js",
-      "tags": ["js", "core", "buggy"],
-      "args": ["--only=js"],
+      "tags": [
+        "js",
+        "core",
+        "buggy"
+      ],
+      "args": [
+        "--only=js"
+      ],
       "expect": {
         "exit_code": "nonzero",
         "totals": {
-          "critical": {"min": 1},
-          "warning": {"min": 1}
+          "critical": {
+            "min": 1
+          },
+          "warning": {
+            "min": 1
+          }
         },
         "require_substrings": [
           "NULL SAFETY & DEFENSIVE PROGRAMMING"
@@ -32,13 +44,23 @@
       "description": "Top-level JS clean fixtures (should stay quiet).",
       "path": "test-suite/clean",
       "language": "js",
-      "tags": ["js", "core", "clean"],
-      "args": ["--only=js"],
+      "tags": [
+        "js",
+        "core",
+        "clean"
+      ],
+      "args": [
+        "--only=js"
+      ],
       "expect": {
         "exit_code": "zero",
         "totals": {
-          "critical": {"max": 0},
-          "warning": {"max": 0}
+          "critical": {
+            "max": 0
+          },
+          "warning": {
+            "max": 0
+          }
         }
       }
     },
@@ -47,13 +69,23 @@
       "description": "module-specific buggy security fixture under test-suite/js/buggy.",
       "path": "test-suite/js/buggy",
       "language": "js",
-      "tags": ["js", "module", "buggy"],
-      "args": ["--only=js"],
+      "tags": [
+        "js",
+        "module",
+        "buggy"
+      ],
+      "args": [
+        "--only=js"
+      ],
       "expect": {
         "exit_code": "nonzero",
         "totals": {
-          "critical": {"min": 1},
-          "warning": {"min": 1}
+          "critical": {
+            "min": 1
+          },
+          "warning": {
+            "min": 1
+          }
         },
         "require_substrings": [
           "SECURITY VULNERABILITIES"
@@ -65,13 +97,23 @@
       "description": "module-specific clean fixture (allows single warning until tuned).",
       "path": "test-suite/js/clean",
       "language": "js",
-      "tags": ["js", "module", "clean"],
-      "args": ["--only=js"],
+      "tags": [
+        "js",
+        "module",
+        "clean"
+      ],
+      "args": [
+        "--only=js"
+      ],
       "expect": {
         "exit_code": "zero",
         "totals": {
-          "critical": {"max": 0},
-          "warning": {"max": 1}
+          "critical": {
+            "max": 0
+          },
+          "warning": {
+            "max": 1
+          }
         }
       }
     },
@@ -80,13 +122,25 @@
       "description": "Express/Node buggy API sample with many security issues.",
       "path": "test-suite/frameworks/node/buggy-api.js",
       "language": "js",
-      "tags": ["js", "framework", "node", "buggy"],
-      "args": ["--only=js", "--fail-on-warning"],
+      "tags": [
+        "js",
+        "framework",
+        "node",
+        "buggy"
+      ],
+      "args": [
+        "--only=js",
+        "--fail-on-warning"
+      ],
       "expect": {
         "exit_code": "nonzero",
         "totals": {
-          "critical": {"min": 1},
-          "warning": {"min": 10}
+          "critical": {
+            "min": 1
+          },
+          "warning": {
+            "min": 10
+          }
         },
         "require_substrings": [
           "MATH & ARITHMETIC PITFALLS"
@@ -98,13 +152,24 @@
       "description": "Express/Node clean API sample (should stay quiet).",
       "path": "test-suite/frameworks/node/clean-api.js",
       "language": "js",
-      "tags": ["js", "framework", "node", "clean"],
-      "args": ["--only=js"],
+      "tags": [
+        "js",
+        "framework",
+        "node",
+        "clean"
+      ],
+      "args": [
+        "--only=js"
+      ],
       "expect": {
         "exit_code": "zero",
         "totals": {
-          "critical": {"max": 0},
-          "warning": {"max": 0}
+          "critical": {
+            "max": 0
+          },
+          "warning": {
+            "max": 0
+          }
         }
       }
     },
@@ -113,13 +178,22 @@
       "description": "Python buggy fixtures (enable once python module assertions stabilize).",
       "path": "test-suite/python/buggy",
       "language": "python",
-      "tags": ["python", "buggy"],
-      "args": ["--only=python"],
+      "tags": [
+        "python",
+        "buggy"
+      ],
+      "args": [
+        "--only=python"
+      ],
       "expect": {
         "exit_code": "nonzero",
         "totals": {
-          "critical": {"min": 1},
-          "warning": {"min": 1}
+          "critical": {
+            "min": 1
+          },
+          "warning": {
+            "min": 1
+          }
         },
         "require_substrings": [
           "ASYNC/AWAIT PITFALLS"
@@ -131,14 +205,249 @@
       "description": "Python clean fixtures (baseline for zero findings).",
       "path": "test-suite/python/clean",
       "language": "python",
-      "tags": ["python", "clean"],
-      "args": ["--only=python"],
+      "tags": [
+        "python",
+        "clean"
+      ],
+      "args": [
+        "--only=python"
+      ],
       "expect": {
         "exit_code": "zero",
         "totals": {
-          "critical": {"max": 0},
-          "warning": {"max": 1}
+          "critical": {
+            "max": 0
+          },
+          "warning": {
+            "max": 1
+          }
         }
+      }
+    },
+    {
+      "id": "golang-buggy",
+      "description": "Go buggy fixtures exercising goroutine/context/network pitfalls.",
+      "path": "test-suite/golang/buggy",
+      "language": "golang",
+      "tags": [
+        "golang",
+        "buggy"
+      ],
+      "args": [
+        "--only=golang"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "critical": {
+            "min": 1
+          },
+          "warning": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "CONCURRENCY & GOROUTINE SAFETY"
+        ]
+      }
+    },
+    {
+      "id": "golang-clean",
+      "description": "Go clean fixtures validating the heuristics stay quiet.",
+      "path": "test-suite/golang/clean",
+      "language": "golang",
+      "tags": [
+        "golang",
+        "clean"
+      ],
+      "args": [
+        "--only=golang"
+      ],
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "critical": {
+            "max": 0
+          },
+          "warning": {
+            "max": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "js-resource-lifecycle",
+      "description": "JS resource cleanup regression (listeners/timers).",
+      "path": "test-suite/js/buggy/resource-lifecycle.js",
+      "language": "js",
+      "tags": [
+        "js",
+        "resource",
+        "buggy"
+      ],
+      "args": [
+        "--only=js"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "warning": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "RESOURCE LIFECYCLE CORRELATION"
+        ]
+      }
+    },
+    {
+      "id": "python-resource-lifecycle",
+      "description": "Python file/subprocess/task cleanup regression.",
+      "path": "test-suite/python/buggy/resource_lifecycle.py",
+      "language": "python",
+      "tags": [
+        "python",
+        "resource",
+        "buggy"
+      ],
+      "args": [
+        "--only=python"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "warning": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "RESOURCE LIFECYCLE CORRELATION"
+        ]
+      }
+    },
+    {
+      "id": "go-resource-lifecycle",
+      "description": "Go context/ticker/timer cleanup regression.",
+      "path": "test-suite/golang/buggy/resource_lifecycle.go",
+      "language": "golang",
+      "tags": [
+        "go",
+        "resource",
+        "buggy"
+      ],
+      "args": [
+        "--only=golang"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "warning": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "RESOURCE LIFECYCLE CORRELATION"
+        ]
+      }
+    },
+    {
+      "id": "cpp-resource-lifecycle",
+      "description": "C++ std::thread/malloc cleanup regression.",
+      "path": "test-suite/cpp/buggy/resource_lifecycle.cpp",
+      "language": "cpp",
+      "tags": [
+        "cpp",
+        "resource",
+        "buggy"
+      ],
+      "args": [
+        "--only=cpp"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "warning": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "RESOURCE LIFECYCLE CORRELATION"
+        ]
+      }
+    },
+    {
+      "id": "rust-resource-lifecycle",
+      "description": "Rust thread/task cleanup regression.",
+      "path": "test-suite/rust/buggy/resource_lifecycle.rs",
+      "language": "rust",
+      "tags": [
+        "rust",
+        "resource",
+        "buggy"
+      ],
+      "args": [
+        "--only=rust"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "warning": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "RESOURCE LIFECYCLE CORRELATION"
+        ]
+      }
+    },
+    {
+      "id": "java-resource-lifecycle",
+      "description": "Java ExecutorService shutdown regression.",
+      "path": "test-suite/java/buggy/ResourceLifecycle.java",
+      "language": "java",
+      "tags": [
+        "java",
+        "resource",
+        "buggy"
+      ],
+      "args": [
+        "--only=java"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "warning": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "RESOURCE LIFECYCLE CORRELATION"
+        ]
+      }
+    },
+    {
+      "id": "ruby-resource-lifecycle",
+      "description": "Ruby Thread/File cleanup regression.",
+      "path": "test-suite/ruby/buggy/resource_lifecycle.rb",
+      "language": "ruby",
+      "tags": [
+        "ruby",
+        "resource",
+        "buggy"
+      ],
+      "args": [
+        "--only=ruby"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "warning": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "RESOURCE LIFECYCLE CORRELATION"
+        ]
       }
     }
   ]
