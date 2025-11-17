@@ -50,8 +50,8 @@
 - [x] Add failing/clean fixtures for Java.
 - [x] Add failing/clean fixtures for Ruby.
 - [x] Update test-suite/manifest.json with new cases per language (covering fail + clean expectations, threshold counts).
-- [ ] Run targeted UBS manifest(s) to validate new checks fire; capture summary in notes/issue.
+- [x] Run targeted UBS manifest(s) to validate new checks fire; capture summary in notes/issue.
 
 ## Documentation / Handoff
-- [ ] Mention TODO status in final summary and update file as tasks complete.
+- [x] Mention TODO status in final summary and update file as tasks complete.
 - [ ] Close issue ultimate_bug_scanner-e3j once scanner + tests + manifest updates done and UBS run clean.
