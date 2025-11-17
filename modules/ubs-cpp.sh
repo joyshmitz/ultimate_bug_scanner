@@ -351,32 +351,38 @@ run_async_error_checks() {
     print_finding "info" 0 "ast-grep not available" "Install ast-grep to analyze std::async usage"
     return
   fi
-  local rule_file tmp_json
-  rule_file="$(mktemp 2>/dev/null || mktemp -t cpp_async_rules.XXXXXX)"
-  cat >"$rule_file" <<'YAML'
-rules:
-  - id: cpp.async.std-async-no-try
-    language: cpp
-    rule:
-      pattern: std::async($ARGS)
-      not:
-        inside:
-          kind: try_statement
-  - id: cpp.async.future-no-get
-    language: cpp
-    rule:
-      pattern: std::future<$T> $F = std::async($ARGS);
-      not:
-        has:
-          pattern: $F.get()
+  local rule_dir tmp_json
+  rule_dir="$(mktemp -d 2>/dev/null || mktemp -d -t cpp_async_rules.XXXXXX)"
+  if [[ ! -d "$rule_dir" ]]; then
+    print_finding "info" 0 "temp dir creation failed" "Unable to stage ast-grep rules"
+    return
+  fi
+  cat >"$rule_dir/cpp.async.std-async-no-try.yml" <<'YAML'
+id: cpp.async.std-async-no-try
+language: cpp
+rule:
+  pattern: std::async($ARGS)
+  not:
+    inside:
+      kind: try_statement
+YAML
+  cat >"$rule_dir/cpp.async.future-no-get.yml" <<'YAML'
+id: cpp.async.future-no-get
+language: cpp
+rule:
+  pattern: std::future<$T> $F = std::async($ARGS);
+  not:
+    has:
+      pattern: $F.get()
 YAML
   tmp_json="$(mktemp 2>/dev/null || mktemp -t cpp_async_matches.XXXXXX)"
-  if ! "${AST_GREP_CMD[@]}" scan -r "$rule_file" "$PROJECT_DIR" --json >"$tmp_json" 2>/dev/null; then
-    rm -f "$rule_file" "$tmp_json"
+  if ! "${AST_GREP_CMD[@]}" scan -r "$rule_dir" "$PROJECT_DIR" --json >"$tmp_json" 2>/dev/null; then
+    rm -rf "$rule_dir"
+    rm -f "$tmp_json"
     print_finding "info" 0 "ast-grep scan failed" "Unable to compute async error coverage"
     return
   fi
-  rm -f "$rule_file"
+  rm -rf "$rule_dir"
   if ! [[ -s "$tmp_json" ]]; then
     rm -f "$tmp_json"
     print_finding "good" "std::async usage appears guarded"

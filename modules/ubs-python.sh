@@ -367,34 +367,41 @@ run_async_error_checks() {
     print_finding "info" 0 "ast-grep not available" "Install ast-grep to enable async error coverage"
     return
   fi
-  local rule_file tmp_json
-  rule_file="$(mktemp 2>/dev/null || mktemp -t py_async_rules.XXXXXX)"
-  cat >"$rule_file" <<'YAML'
-rules:
-  - id: py.async.await-no-try
-    language: python
-    rule:
-      pattern: await $EXPR
-      not:
-        inside:
-          kind: try_statement
-  - id: py.async.task-no-await
-    language: python
-    rule:
-      pattern: $TASK = asyncio.create_task($ARGS)
-      not:
-        inside:
-          any:
-            - pattern: await $TASK
-            - pattern: $TASK.cancel()
+  local rule_dir tmp_json
+  rule_dir="$(mktemp -d 2>/dev/null || mktemp -d -t py_async_rules.XXXXXX)"
+  if [[ ! -d "$rule_dir" ]]; then
+    print_finding "info" 0 "temp dir creation failed" "Unable to stage ast-grep rules"
+    return
+  fi
+  cat >"$rule_dir/py.async.await-no-try.yml" <<'YAML'
+id: py.async.await-no-try
+language: python
+rule:
+  pattern: await $EXPR
+  not:
+    inside:
+      kind: try_statement
+YAML
+  cat >"$rule_dir/py.async.task-no-await.yml" <<'YAML'
+id: py.async.task-no-await
+language: python
+rule:
+  pattern: $TASK = asyncio.create_task($ARGS)
+  not:
+    inside:
+      any:
+        - pattern: await $TASK
+        - pattern: $TASK.cancel()
+        - pattern: $TASK.add_done_callback($CB)
 YAML
   tmp_json="$(mktemp 2>/dev/null || mktemp -t py_async_matches.XXXXXX)"
-  if ! "${AST_GREP_CMD[@]}" scan -r "$rule_file" "$PROJECT_DIR" --json >"$tmp_json" 2>/dev/null; then
-    rm -f "$rule_file" "$tmp_json"
+  if ! "${AST_GREP_CMD[@]}" scan -r "$rule_dir" "$PROJECT_DIR" --json >"$tmp_json" 2>/dev/null; then
+    rm -rf "$rule_dir"
+    rm -f "$tmp_json"
     print_finding "info" 0 "ast-grep scan failed" "Unable to compute async error coverage"
     return
   fi
-  rm -f "$rule_file"
+  rm -rf "$rule_dir"
   if ! [[ -s "$tmp_json" ]]; then
     rm -f "$tmp_json"
     print_finding "good" "All async operations appear protected"

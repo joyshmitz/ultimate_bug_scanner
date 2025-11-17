@@ -381,40 +381,46 @@ run_async_error_checks() {
     print_finding "info" 0 "ast-grep not available" "Install ast-grep to inspect async error handling"
     return
   fi
-  local rule_file tmp_json
-  rule_file="$(mktemp 2>/dev/null || mktemp -t rs_async_rules.XXXXXX)"
-  cat >"$rule_file" <<'YAML'
-rules:
-  - id: rust.async.await-no-handler
-    language: rust
-    rule:
-      pattern: $CALL.await
-      not:
-        pattern: $CALL.await?
-      not:
-        inside:
-          pattern: match $EXPR { $$ }
-      not:
-        inside:
-          pattern: if let Err($ERR) = $CALL.await { $$ }
-  - id: rust.async.tokio-task-no-await
-    language: rust
-    rule:
-      pattern: let $HANDLE = tokio::spawn($ARGS);
-      not:
-        has:
-          pattern: $HANDLE.await
-      not:
-        has:
-          pattern: $HANDLE.abort()
+  local rule_dir tmp_json
+  rule_dir="$(mktemp -d 2>/dev/null || mktemp -d -t rs_async_rules.XXXXXX)"
+  if [[ ! -d "$rule_dir" ]]; then
+    print_finding "info" 0 "temp dir creation failed" "Unable to stage ast-grep rules"
+    return
+  fi
+  cat >"$rule_dir/rust.async.await-no-handler.yml" <<'YAML'
+id: rust.async.await-no-handler
+language: rust
+rule:
+  pattern: $CALL.await
+  not:
+    pattern: $CALL.await?
+  not:
+    inside:
+      pattern: match $EXPR { $$ }
+  not:
+    inside:
+      pattern: if let Err($ERR) = $CALL.await { $$ }
+YAML
+  cat >"$rule_dir/rust.async.tokio-task-no-await.yml" <<'YAML'
+id: rust.async.tokio-task-no-await
+language: rust
+rule:
+  pattern: let $HANDLE = tokio::spawn($ARGS);
+  not:
+    has:
+      pattern: $HANDLE.await
+  not:
+    has:
+      pattern: $HANDLE.abort()
 YAML
   tmp_json="$(mktemp 2>/dev/null || mktemp -t rs_async_matches.XXXXXX)"
-  if ! "${AST_GREP_CMD[@]}" scan -r "$rule_file" "$PROJECT_DIR" --json >"$tmp_json" 2>/dev/null; then
-    rm -f "$rule_file" "$tmp_json"
+  if ! "${AST_GREP_CMD[@]}" scan -r "$rule_dir" "$PROJECT_DIR" --json >"$tmp_json" 2>/dev/null; then
+    rm -rf "$rule_dir"
+    rm -f "$tmp_json"
     print_finding "info" 0 "ast-grep scan failed" "Unable to compute async error coverage"
     return
   fi
-  rm -f "$rule_file"
+  rm -rf "$rule_dir"
   if ! [[ -s "$tmp_json" ]]; then
     rm -f "$tmp_json"
     print_finding "good" "Async awaits appear handled"

@@ -378,28 +378,32 @@ run_async_error_checks() {
     print_finding "info" 0 "ast-grep not available" "Install ast-grep to analyze Thread error handling"
     return
   fi
-  local rule_file tmp_json
-  rule_file="$(mktemp 2>/dev/null || mktemp -t rb_async_rules.XXXXXX)"
-  cat >"$rule_file" <<'YAML'
-rules:
-  - id: ruby.async.thread-no-rescue
-    language: ruby
-    rule:
-      pattern: |
-        Thread.new($ARGS) do
-          $$
-        end
-      not:
-        contains:
-          kind: rescue_clause
+  local rule_dir tmp_json
+  rule_dir="$(mktemp -d 2>/dev/null || mktemp -d -t rb_async_rules.XXXXXX)"
+  if [[ ! -d "$rule_dir" ]]; then
+    print_finding "info" 0 "temp dir creation failed" "Unable to stage ast-grep rules"
+    return
+  fi
+  cat >"$rule_dir/ruby.async.thread-no-rescue.yml" <<'YAML'
+id: ruby.async.thread-no-rescue
+language: ruby
+rule:
+  pattern: |
+    Thread.new($ARGS) do
+      $$
+    end
+  not:
+    contains:
+      kind: rescue_clause
 YAML
   tmp_json="$(mktemp 2>/dev/null || mktemp -t rb_async_matches.XXXXXX)"
-  if ! "${AST_GREP_CMD[@]}" scan -r "$rule_file" "$PROJECT_DIR" --json >"$tmp_json" 2>/dev/null; then
-    rm -f "$rule_file" "$tmp_json"
+  if ! "${AST_GREP_CMD[@]}" scan -r "$rule_dir" "$PROJECT_DIR" --json >"$tmp_json" 2>/dev/null; then
+    rm -rf "$rule_dir"
+    rm -f "$tmp_json"
     print_finding "info" 0 "ast-grep scan failed" "Unable to compute async error coverage"
     return
   fi
-  rm -f "$rule_file"
+  rm -rf "$rule_dir"
   if ! [[ -s "$tmp_json" ]]; then
     rm -f "$tmp_json"
     print_finding "good" "Thread bodies appear to handle exceptions"
