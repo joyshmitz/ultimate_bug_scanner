@@ -591,7 +591,10 @@ def expr_has_sanitizer(expr: str, sink_rule: str | None = None) -> bool:
     for regex in SANITIZER_REGEXES:
         if regex.search(expr):
             return True
-    if sink_rule == 'go.taint.sql' and re.search(r",\s*(?:args|params|values)\b", expr, re.IGNORECASE):
+    if sink_rule == 'go.taint.sql':
+        if re.search(r"\?", expr) and ',' in expr:
+            return True
+        if re.search(r",\s*(?:\(|args|params|values)\b", expr, re.IGNORECASE):
             return True
     return False
 
