@@ -354,43 +354,136 @@ show_detailed_finding() {
 }
 
 run_resource_lifecycle_checks() {
-  local header_shown=0
-  local rid
-  for rid in "${RESOURCE_LIFECYCLE_IDS[@]}"; do
-    local acquire_regex="${RESOURCE_LIFECYCLE_ACQUIRE[$rid]:-}"
-    local release_regex="${RESOURCE_LIFECYCLE_RELEASE[$rid]:-}"
-    [[ -z "$acquire_regex" || -z "$release_regex" ]] && continue
-    local file_list
-    file_list=$("${GREP_RN[@]}" -e "$acquire_regex" "$PROJECT_DIR" 2>/dev/null | cut -d: -f1 | sort -u || true)
-    [[ -n "$file_list" ]] || continue
-    while IFS= read -r file; do
-      [[ -z "$file" ]] && continue
-      local acquire_hits release_hits
-      acquire_hits=$("${GREP_RN[@]}" -e "$acquire_regex" "$file" 2>/dev/null | count_lines || true)
-      release_hits=$("${GREP_RN[@]}" -e "$release_regex" "$file" 2>/dev/null | count_lines || true)
-      acquire_hits=${acquire_hits:-0}
-      release_hits=${release_hits:-0}
-      if (( acquire_hits > release_hits )); then
-        if [[ $header_shown -eq 0 ]]; then
-          print_subheader "Resource lifecycle correlation"
-          header_shown=1
-        fi
-        local delta=$((acquire_hits - release_hits))
-        local relpath=${file#"$PROJECT_DIR"/}
-        [[ "$relpath" == "$file" ]] && relpath="$file"
-        local summary="${RESOURCE_LIFECYCLE_SUMMARY[$rid]:-Resource imbalance}"
-        local remediation="${RESOURCE_LIFECYCLE_REMEDIATION[$rid]:-Ensure matching cleanup call}"
-        local severity="${RESOURCE_LIFECYCLE_SEVERITY[$rid]:-warning}"
-        local title="$summary [$relpath]"
-        local desc="$remediation (acquire=$acquire_hits, release=$release_hits)"
-        print_finding "$severity" "$delta" "$title" "$desc"
-      fi
-    done <<<"$file_list"
-  done
-  if [[ $header_shown -eq 0 ]]; then
-    print_subheader "Resource lifecycle correlation"
+  print_subheader "Resource lifecycle correlation"
+  if emit_ast_rule_group RESOURCE_LIFECYCLE_IDS RESOURCE_LIFECYCLE_SEVERITY RESOURCE_LIFECYCLE_SUMMARY RESOURCE_LIFECYCLE_REMEDIATION \
+    "All tracked resource acquisitions have matching cleanups" "Resource lifecycle checks"; then
+    return
+  fi
+
+  local emitted=0
+  mapfile -t exec_meta < <(java_pattern_scan executor_leak)
+  local exec_count="${exec_meta[0]:-0}"
+  local exec_samples="${exec_meta[1]:-}"
+  if [ "${exec_count:-0}" -gt 0 ]; then
+    emitted=1
+    local desc="Call shutdown()/shutdownNow() on ExecutorService instances"
+    if [ -n "$exec_samples" ]; then
+      desc+=" (e.g., ${exec_samples%%,*})"
+    fi
+    print_finding "warning" "$exec_count" "ExecutorService created without shutdown" "$desc"
+  fi
+
+  mapfile -t stream_meta < <(java_pattern_scan stream_leak)
+  local stream_count="${stream_meta[0]:-0}"
+  local stream_samples="${stream_meta[1]:-}"
+  if [ "${stream_count:-0}" -gt 0 ]; then
+    emitted=1
+    local desc="Wrap FileInputStream/FileOutputStream in try-with-resources or call close()"
+    if [ -n "$stream_samples" ]; then
+      desc+=" (e.g., ${stream_samples%%,*})"
+    fi
+    print_finding "warning" "$stream_count" "File streams opened without close()" "$desc"
+  fi
+
+  if [ "$emitted" -eq 0 ]; then
     print_finding "good" "All tracked resource acquisitions have matching cleanups"
   fi
+}
+
+java_pattern_scan() {
+  local mode="$1"
+  python3 - "$PROJECT_DIR" "$mode" <<'PY'
+import re, sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+mode = sys.argv[2]
+base = root if root.is_dir() else root.parent
+if root.is_file():
+    candidates = [root] if root.suffix.lower() == '.java' else []
+else:
+    candidates = [p for p in base.rglob('*.java')]
+
+def relpath(path):
+    try:
+        return str(path.relative_to(base))
+    except ValueError:
+        return str(path)
+
+def read_lines(path):
+    try:
+        return path.read_text(encoding='utf-8', errors='ignore').splitlines()
+    except Exception:
+        return []
+
+def search_line(pattern):
+    count = 0
+    samples = []
+    for path in candidates:
+        lines = read_lines(path)
+        if not lines:
+            continue
+        for idx, line in enumerate(lines, start=1):
+            if pattern.search(line):
+                count += 1
+                if len(samples) < 3:
+                    samples.append(f"{relpath(path)}:{idx}")
+    return count, samples
+
+if mode == "runtime_exec":
+    pat = re.compile(r"Runtime\.getRuntime\(\)\.exec")
+    count, samples = search_line(pat)
+elif mode == "sql_concat":
+    pat = re.compile(r"\"(?:SELECT|INSERT|UPDATE|DELETE)[^\"]*\"[ \t]*\+")
+    count, samples = search_line(pat)
+elif mode == "executor_leak":
+    pat = re.compile(r"Executors\.(?:new[A-Za-z]+)\s*\(|new\s+ThreadPoolExecutor\s*\(")
+    shutdown_pat = re.compile(r"\.shutdown(?:Now)?\s*\(")
+    count = 0
+    samples = []
+    for path in candidates:
+        lines = read_lines(path)
+        if not lines:
+            continue
+        text = "\n".join(lines)
+        if not pat.search(text):
+            continue
+        if shutdown_pat.search(text):
+            continue
+        count += 1
+        if len(samples) < 3:
+            for idx, line in enumerate(lines, start=1):
+                if pat.search(line):
+                    samples.append(f"{relpath(path)}:{idx}")
+                    break
+elif mode == "stream_leak":
+    pat = re.compile(r"new\s+File(?:Input|Output)Stream\s*\(")
+    close_pat = re.compile(r"\.close\s*\(")
+    count = 0
+    samples = []
+    for path in candidates:
+        lines = read_lines(path)
+        if not lines:
+            continue
+        text = "\n".join(lines)
+        if not pat.search(text):
+            continue
+        if close_pat.search(text):
+            continue
+        matches = pat.findall(text)
+        count += len(matches) or 1
+        if len(samples) < 3:
+            for idx, line in enumerate(lines, start=1):
+                if pat.search(line):
+                    samples.append(f"{relpath(path)}:{idx}")
+                    break
+else:
+    count = 0
+    samples = []
+
+print(count)
+print(",".join(samples))
+PY
 }
 
 run_async_error_checks() {
@@ -1013,11 +1106,25 @@ say "${WHITE}Project:${RESET}  ${CYAN}$PROJECT_DIR${RESET}"
 say "${WHITE}Started:${RESET}  ${GRAY}$(now)${RESET}"
 
 # Count files (robust prune + include patterns)
+EX_PRUNE=()
+for d in "${EXCLUDE_DIRS[@]}"; do EX_PRUNE+=( -name "$d" -o ); done
+EX_PRUNE+=( -false )
+NAME_EXPR=( \( )
+first=1
+for e in "${_EXT_ARR[@]}"; do
+  if [[ $first -eq 1 ]]; then
+    NAME_EXPR+=( -name "*.$e" )
+    first=0
+  else
+    NAME_EXPR+=( -o -name "*.$e" )
+  fi
+done
+NAME_EXPR+=( \) )
 TOTAL_FILES=$(
   ( set +o pipefail;
     find "$PROJECT_DIR" \
-      \( $(printf -- "-name %q -o " "${EXCLUDE_DIRS[@]}") -false \) -prune -o \
-      \( -type f \( $(printf -- "-name '*.%s' -o " "${_EXT_ARR[@]}") -false \) -print \) 2>/dev/null || true
+      \( -type d \( "${EX_PRUNE[@]}" \) -prune \) -o \
+      \( -type f "${NAME_EXPR[@]}" -print \) 2>/dev/null || true
   ) | wc -l | awk '{print $1+0}'
 )
 say "${WHITE}Files:${RESET}    ${CYAN}$TOTAL_FILES source files (${INCLUDE_EXT})${RESET}"
@@ -1173,6 +1280,24 @@ if [ "$deser" -gt 0 ]; then print_finding "warning" "$deser" "Object deserializa
 print_subheader "java.util.Random usage"
 rand=$(( $(ast_search 'new java.util.Random($$)' || echo 0) + $("${GREP_RN[@]}" -e "new[[:space:]]+Random\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true) ))
 if [ "$rand" -gt 0 ]; then print_finding "info" "$rand" "Random used; prefer SecureRandom for secrets"; fi
+
+print_subheader "Runtime.exec command execution"
+cmd_exec=$("${GREP_RN[@]}" -e "Runtime\\.getRuntime\\(\\)\\.exec" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+if [ "$cmd_exec" -gt 0 ]; then
+  print_finding "critical" "$cmd_exec" "Runtime.exec invoked" "Sanitize command arguments or avoid spawning shell commands"
+  show_detailed_finding "Runtime\\.getRuntime\\(\\)\\.exec" 3
+else
+  mapfile -t runtime_meta < <(java_pattern_scan runtime_exec)
+  runtime_count="${runtime_meta[0]:-0}"
+  runtime_samples="${runtime_meta[1]:-}"
+  if [ "${runtime_count:-0}" -gt 0 ]; then
+    runtime_desc="Sanitize command arguments or avoid spawning shell commands"
+    if [ -n "$runtime_samples" ]; then
+      runtime_desc+=" (e.g., ${runtime_samples%%,*})"
+    fi
+    print_finding "critical" "$runtime_count" "Runtime.exec invoked" "$runtime_desc"
+  fi
+fi
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1364,11 +1489,28 @@ print_category "Detects: string-concatenated SQL, Statement.executeQuery with + 
 
 print_subheader "String-concatenated SQL"
 sql_concat=$("${GREP_RN[@]}" -e "\"(SELECT|INSERT|UPDATE|DELETE)[^\"]*\"[[:space:]]*\\+[[:space:]]*[A-Za-z0-9_]" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
-if [ "$sql_concat" -gt 0 ]; then print_finding "warning" "$sql_concat" "SQL built via concatenation - prefer parameters"; fi
+if [ "$sql_concat" -gt 0 ]; then
+  print_finding "warning" "$sql_concat" "SQL built via concatenation - prefer parameters"
+  show_detailed_finding "execute(Query|Update)\s*\([^)]*\+" 3
+fi
 
 print_subheader "Statement.executeQuery with concatenation"
 exec_concat=$("${GREP_RN[@]}" -e "execute(Query|Update)\s*\(" "$PROJECT_DIR" 2>/dev/null | (grep "\+" || true) | count_lines)
-if [ "$exec_concat" -gt 0 ]; then print_finding "warning" "$exec_concat" "execute* called with concatenated query string"; fi
+if [ "$exec_concat" -gt 0 ]; then
+  print_finding "warning" "$exec_concat" "execute* called with concatenated query string"
+  show_detailed_finding "execute(Query|Update)\s*\([^)]*\+" 3
+elif [ "$sql_concat" -eq 0 ]; then
+  mapfile -t sql_meta < <(java_pattern_scan sql_concat)
+  sql_fallback="${sql_meta[0]:-0}"
+  sql_samples="${sql_meta[1]:-}"
+  if [ "${sql_fallback:-0}" -gt 0 ]; then
+    sql_desc="Prefer PreparedStatement parameters over string concatenation"
+    if [ -n "$sql_samples" ]; then
+      sql_desc+=" (e.g., ${sql_samples%%,*})"
+    fi
+    print_finding "warning" "$sql_fallback" "SQL built via concatenation - prefer parameters" "$sql_desc"
+  fi
+fi
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1506,6 +1648,13 @@ if [ "$io_ctor" -gt 0 ]; then
   show_detailed_finding "new[[:space:]]+(File(Input|Output)Stream|FileReader|FileWriter|Buffered(Input|Output)Stream|Buffered(Reader|Writer)|InputStreamReader|OutputStreamWriter|PrintWriter|Scanner)\s*\(" 5
 else
   print_finding "good" "No I/O constructors detected"
+fi
+
+print_subheader "ExecutorService shutdown tracking"
+exec_leak=$("${GREP_RN[@]}" -e "ExecutorService[[:space:]]+[A-Za-z0-9_]+[[:space:]]*=\s*Executors\." "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+if [ "$exec_leak" -gt 0 ]; then
+  print_finding "warning" "$exec_leak" "ExecutorService created without shutdown" "Call shutdown()/shutdownNow() in finally blocks"
+  show_detailed_finding "ExecutorService[[:space:]]+[A-Za-z0-9_]+[[:space:]]*=\s*Executors\." 3
 fi
 
 run_resource_lifecycle_checks
