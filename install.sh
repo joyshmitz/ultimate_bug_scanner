@@ -66,8 +66,12 @@ cleanup_on_exit() {
   fi
 }
 
-# Set up cleanup trap
-trap cleanup_on_exit EXIT INT TERM
+# Set up cleanup traps
+# For INT/TERM: cleanup then exit immediately (don't continue script)
+# For EXIT: just cleanup (already exiting)
+trap 'cleanup_on_exit; exit 130' INT   # 130 = 128 + SIGINT (2)
+trap 'cleanup_on_exit; exit 143' TERM  # 143 = 128 + SIGTERM (15)
+trap cleanup_on_exit EXIT
 
 print_header() {
   echo -e "${BOLD}${BLUE}"
@@ -431,8 +435,15 @@ check_for_updates() {
       if ask "Update to latest version now?"; then
         log "Re-running installer with latest version..."
         # Clean up lock before exec (exec replaces process, so trap won't fire)
-        rmdir "$LOCK_FILE" 2>/dev/null
+        # CRITICAL: Set LOCK_OWNED=0 BEFORE rmdir to prevent signal race condition
+        # (If signal arrives after rmdir but before LOCK_OWNED=0, trap would try to
+        #  remove lock that might have been acquired by another process!)
+        LOCK_OWNED=0  # Mark that we no longer own the lock
+        rmdir "$LOCK_FILE" 2>/dev/null  # Remove it
         exec bash <(curl -fsSL "$REPO_URL/install.sh") "${ORIGINAL_ARGS[@]}"
+        # If we get here, exec failed - abort immediately (we no longer have the lock!)
+        error "Failed to download or execute updated installer"
+        exit 1
       fi
     else
       success "You have the latest version ($current_version)"
