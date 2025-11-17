@@ -9,6 +9,7 @@ async fn fetch_data() -> Result<String, &'static str> {
 async fn run() {
     let body = fetch_data().await;
     println!("{:?}", body);
+    let _ = fetch_data().await.unwrap();
     let handle = tokio::spawn(async move {
         let _ = fetch_data().await;
     });
