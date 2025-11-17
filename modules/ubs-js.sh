@@ -59,6 +59,7 @@ UBS_VERSION="4.7"
 JSON_FINDINGS_TMP=""
 USER_RULE_DIR=""
 DISABLE_PIPEFAIL_DURING_SCAN=1
+AST_RULE_RESULTS_JSON=""
 
 # Async error coverage spec (rule ids -> metadata)
 ASYNC_ERROR_RULE_IDS=(js.async.then-no-catch js.async.promiseall-no-try)
@@ -156,6 +157,16 @@ declare -A TAINT_SEVERITY=(
   [js.taint.sql]='critical'
 )
 
+cleanup_temp_artifacts(){
+  if [[ -n "$AST_RULE_RESULTS_JSON" && -f "$AST_RULE_RESULTS_JSON" ]]; then
+    rm -f "$AST_RULE_RESULTS_JSON"
+  fi
+  if [[ -n "$AST_RULE_DIR" && -d "$AST_RULE_DIR" ]]; then
+    rm -rf "$AST_RULE_DIR"
+  fi
+}
+trap cleanup_temp_artifacts EXIT
+
 
 print_usage() {
   cat >&2 <<USAGE
@@ -215,6 +226,11 @@ done
 # CI auto-detect + color override
 if [[ -n "${CI:-}" ]]; then CI_MODE=1; fi
 if [[ "$NO_COLOR_FLAG" -eq 1 ]]; then USE_COLOR=0; fi
+
+if [[ "$FAIL_ON_WARNING" -eq 0 ]]; then
+  ASYNC_ERROR_SEVERITY[js.async.then-no-catch]='info'
+  ASYNC_ERROR_SEVERITY[js.async.promiseall-no-try]='info'
+fi
 
 # Create a temp JSON accumulator if requested
 if [[ -n "$REPORT_JSON" ]]; then
@@ -397,15 +413,12 @@ emit_ast_rule_group() {
   declare -n _summary="$summary_map_name"
   declare -n _remediation="$remediation_map_name"
 
-  local tmp_json
-  tmp_json="$(mktemp 2>/dev/null || mktemp -t js_rule_group.XXXXXX)"
-  if ! "${AST_GREP_CMD[@]}" scan -r "$AST_RULE_DIR" "$PROJECT_DIR" --json=stream >"$tmp_json" 2>/dev/null; then
-    rm -f "$tmp_json"
+  if ! ensure_ast_rule_results; then
     print_finding "info" 0 "$missing_msg" "ast-grep scan failed"
     return 1
   fi
-  if ! [[ -s "$tmp_json" ]]; then
-    rm -f "$tmp_json"
+  local result_json="$AST_RULE_RESULTS_JSON"
+  if ! [[ -s "$result_json" ]]; then
     print_finding "good" "$good_msg"
     return 0
   fi
@@ -416,6 +429,9 @@ emit_ast_rule_group() {
       [[ -z "$match_rid" ]] && continue
       had_matches=1
       local sev=${_severity[$match_rid]:-warning}
+      if [[ "$rules_name" == "ASYNC_ERROR_RULE_IDS" && "$FAIL_ON_WARNING" -eq 0 ]]; then
+        sev="info"
+      fi
       local summary=${_summary[$match_rid]:-$match_rid}
       local desc=${_remediation[$match_rid]:-}
       print_finding "$sev" "$match_count" "$summary" "$desc"
@@ -426,35 +442,54 @@ emit_ast_rule_group() {
           say "    ${DIM}$sample${RESET}"
         done
       fi
-    done < <(python3 - "$tmp_json" <<PY
+    done < <(python3 - "$result_json" "${_rule_ids[@]}" <<'PY'
 import json, sys
 from collections import OrderedDict
-want = set(${_rule_ids[@] and repr(list("${_rule_ids[@]}".split())) or "[]"})
+
+if len(sys.argv) < 2:
+    sys.exit(0)
+
+rule_file = sys.argv[1]
+want = set(sys.argv[2:])
+if not want:
+    sys.exit(0)
+
 stats = OrderedDict()
-for line in open(sys.argv[1],'r',encoding='utf-8'):
-    if not line.strip(): continue
-    try: obj = json.loads(line)
-    except: continue
-    rid = obj.get('ruleId') or obj.get('rule_id') or obj.get('id')
-    if not rid or rid not in want: continue
-    f = obj.get('file') or obj.get('path') or '?'
-    sline = ((obj.get('range') or {}).get('start') or {}).get('line')
-    if isinstance(sline, int): sline += 1
-    sample = f"{f}:{sline if sline is not None else '?'}"
-    ent = stats.setdefault(rid, {'count':0,'samples':[]})
-    ent['count'] += 1
-    if len(ent['samples'])<3: ent['samples'].append(sample)
+with open(rule_file, 'r', encoding='utf-8') as fh:
+    for line in fh:
+        if not line.strip():
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        rid = obj.get('ruleId') or obj.get('rule_id') or obj.get('id')
+        if not rid or rid not in want:
+            continue
+        f = obj.get('file') or obj.get('path') or '?'
+        sline = ((obj.get('range') or {}).get('start') or {}).get('line')
+        if isinstance(sline, int):
+            sline += 1
+        sample = f"{f}:{sline if sline is not None else '?'}"
+        ent = stats.setdefault(rid, {'count': 0, 'samples': []})
+        ent['count'] += 1
+        if len(ent['samples']) < 3:
+            ent['samples'].append(sample)
+
 for rid, data in stats.items():
-    print(rid, data['count'], ','.join(data['samples']), sep='\\t')
+    print(rid, data['count'], ','.join(data['samples']), sep='	')
 PY
     )
   else
     if command -v jq >/dev/null 2>&1; then
       for rid in "${_rule_ids[@]}"; do
-        local c; c=$(jq -r --arg id "$rid" 'select(.ruleId==$id) | 1' "$tmp_json" 2>/dev/null | wc -l | awk '{print $1+0}')
+        local c; c=$(jq -r --arg id "$rid" 'select(.ruleId==$id) | 1' "$result_json" 2>/dev/null | wc -l | awk '{print $1+0}')
         if [[ "$c" -gt 0 ]]; then
           had_matches=1
           local sev=${_severity[$rid]:-warning}
+          if [[ "$rules_name" == "ASYNC_ERROR_RULE_IDS" && "$FAIL_ON_WARNING" -eq 0 ]]; then
+            sev="info"
+          fi
           local summary=${_summary[$rid]:-$rid}
           local desc=${_remediation[$rid]:-}
           print_finding "$sev" "$c" "$summary" "$desc"
@@ -462,7 +497,6 @@ PY
       done
     fi
   fi
-  rm -f "$tmp_json"
   if [[ $had_matches -eq 0 ]]; then
     print_finding "good" "$good_msg"
   fi
@@ -484,14 +518,115 @@ show_detailed_finding() {
 
 run_resource_lifecycle_checks() {
   print_subheader "Resource lifecycle correlation"
-  emit_ast_rule_group RESOURCE_RULE_IDS RESOURCE_RULE_SEVERITY RESOURCE_RULE_SUMMARY RESOURCE_RULE_REMEDIATION \
-    "All tracked resource acquisitions have matching cleanups" "Resource lifecycle checks"
+  if emit_ast_rule_group RESOURCE_RULE_IDS RESOURCE_RULE_SEVERITY RESOURCE_RULE_SUMMARY RESOURCE_RULE_REMEDIATION \
+    "All tracked resource acquisitions have matching cleanups" "Resource lifecycle checks"; then
+    return
+  fi
+
+  local emitted=0
+  local add_listener remove_listener interval_count clear_count observer_count disconnect_count delta
+
+  add_listener=$("${GREP_RN[@]}" -e "(window|document)\.addEventListener[[:space:]]*\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+  remove_listener=$("${GREP_RN[@]}" -e "(window|document)\.removeEventListener[[:space:]]*\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+  if [ "${add_listener:-0}" -gt "${remove_listener:-0}" ]; then
+    delta=$((add_listener - remove_listener))
+    emitted=1
+    print_finding "warning" "$delta" "Event listeners missing removeEventListener" "Store handler references and call removeEventListener during teardown"
+    show_detailed_finding "addEventListener" 3
+  fi
+
+  interval_count=$("${GREP_RN[@]}" -e "setInterval[[:space:]]*\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+  clear_count=$("${GREP_RN[@]}" -e "clearInterval[[:space:]]*\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+  if [ "${interval_count:-0}" -gt "${clear_count:-0}" ]; then
+    delta=$((interval_count - clear_count))
+    emitted=1
+    print_finding "warning" "$delta" "setInterval timers without clearInterval" "Keep interval ids and clearInterval when component unmounts"
+    show_detailed_finding "setInterval" 3
+  fi
+
+  observer_count=$("${GREP_RN[@]}" -e "new[[:space:]]+MutationObserver" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+  disconnect_count=$("${GREP_RN[@]}" -e "\.disconnect[[:space:]]*\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+  if [ "${observer_count:-0}" -gt "${disconnect_count:-0}" ]; then
+    delta=$((observer_count - disconnect_count))
+    emitted=1
+    print_finding "warning" "$delta" "MutationObserver without disconnect()" "Call disconnect() to avoid leaking DOM observers"
+    show_detailed_finding "MutationObserver" 3
+  fi
+
+  if [ "$emitted" -eq 0 ]; then
+    print_finding "good" "All tracked resource acquisitions have matching cleanups"
+  fi
+}
+
+run_node_api_checks() {
+  local express_hits node_header=0
+  express_hits=$("${GREP_RN[@]}" -e "require[[:space:]]*\([[:space:]]*['\"]express" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+  local import_hits
+  import_hits=$("${GREP_RN[@]}" -e "from[[:space:]]+['\"]express['\"]" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+  express_hits=$((express_hits + import_hits))
+  import_hits=$("${GREP_RN[@]}" -e "import[[:space:]]+express" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+  express_hits=$((express_hits + import_hits))
+  if [ "${express_hits:-0}" -eq 0 ]; then
+    return
+  fi
+
+  local body_refs parser_refs validation_refs sensitive_logs desc
+  body_refs=$("${GREP_RN[@]}" -e "req\.body" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+  parser_refs=$("${GREP_RN[@]}" -e "express\.(json|urlencoded)|bodyParser" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+  if [ "${body_refs:-0}" -gt 0 ] && [ "${parser_refs:-0}" -eq 0 ]; then
+    print_subheader "Express API hygiene"
+    node_header=1
+    desc="Call app.use(express.json()) / express.urlencoded() (or bodyParser) before accessing req.body"
+    print_finding "warning" "$body_refs" "req.body used without body parsing middleware" "$desc"
+  fi
+
+  validation_refs=$("${GREP_RN[@]}" -e "express-validator|Joi|zod|celebrate|Ajv|yup|schema\.validate" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+  if [ "${body_refs:-0}" -gt 0 ] && [ "${validation_refs:-0}" -eq 0 ]; then
+    if [ "$node_header" -eq 0 ]; then
+      print_subheader "Express API hygiene"
+      node_header=1
+    fi
+    print_finding "warning" "$body_refs" "Request bodies lack explicit validation" "Add Joi/zod/express-validator (or custom middleware) to guard req.body before use"
+  fi
+
+  sensitive_logs=$("${GREP_RN[@]}" -e "console\.(log|error)[[:space:]]*\([^)]*(password|token|creditCard|req\.body)" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+  if [ "${sensitive_logs:-0}" -gt 0 ]; then
+    if [ "$node_header" -eq 0 ]; then
+      print_subheader "Express API hygiene"
+      node_header=1
+    fi
+    print_finding "warning" "$sensitive_logs" "Sensitive request data logged to console" "Never log credentials, tokens, or raw request bodies"
+  fi
 }
 
 run_async_error_checks() {
   print_subheader "Async error path coverage"
-  emit_ast_rule_group ASYNC_ERROR_RULE_IDS ASYNC_ERROR_SEVERITY ASYNC_ERROR_SUMMARY ASYNC_ERROR_REMEDIATION \
-    "All async operations appear protected" "Async rule checks"
+  if [[ "$FAIL_ON_WARNING" -eq 0 ]]; then
+    ASYNC_ERROR_SEVERITY[js.async.then-no-catch]='info'
+    ASYNC_ERROR_SEVERITY[js.async.promiseall-no-try]='info'
+  else
+    ASYNC_ERROR_SEVERITY[js.async.then-no-catch]='warning'
+    ASYNC_ERROR_SEVERITY[js.async.promiseall-no-try]='warning'
+  fi
+  if ! emit_ast_rule_group ASYNC_ERROR_RULE_IDS ASYNC_ERROR_SEVERITY ASYNC_ERROR_SUMMARY ASYNC_ERROR_REMEDIATION \
+    "All async operations appear protected" "Async rule checks"; then
+    if [[ "$FAIL_ON_WARNING" -eq 0 ]]; then
+      print_finding "info" 0 "Async fallback disabled" "Run with --fail-on-warning to surface missing .catch()/try blocks when ast-grep is unavailable"
+      return
+    fi
+    local then_count promise_all_count
+    then_count=$("${GREP_RN[@]}" -e "\.then\s*\(" "$PROJECT_DIR" 2>/dev/null | \
+      (grep -v "\.catch" || true) | (grep -v "\.finally" || true) | count_lines)
+    if [ "$then_count" -gt 0 ]; then
+      print_finding "warning" "$then_count" "Promise.then chain missing .catch()" "Chain .catch() (or .finally()) to surface rejections"
+    else
+      print_finding "good" "Promise chains appear to handle rejections"
+    fi
+    promise_all_count=$("${GREP_RN[@]}" -e "Promise\.all\s*\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+    if [ "$promise_all_count" -gt 0 ]; then
+      print_finding "warning" "$promise_all_count" "Promise.all without visible try/catch" "Wrap Promise.all in try/catch to handle aggregate failures"
+    fi
+  fi
 }
 
 run_hooks_dependency_checks() {
@@ -1368,7 +1503,6 @@ persist_metric_json() {
 write_ast_rules() {
   [[ "$HAS_AST_GREP" -eq 1 ]] || return 0
   AST_RULE_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t ag_rules.XXXXXX)"
-  trap '[[ -n "${AST_RULE_DIR:-}" ]] && rm -rf "$AST_RULE_DIR" || true' EXIT
   if [[ -n "$USER_RULE_DIR" && -d "$USER_RULE_DIR" ]]; then
     cp -R "$USER_RULE_DIR"/. "$AST_RULE_DIR"/ 2>/dev/null || true
   fi
@@ -1706,14 +1840,44 @@ message: "MutationObserver created without disconnect()."
 YAML
 }
 
-run_ast_rules() {
+ensure_ast_rule_results() {
   [[ "$HAS_AST_GREP" -eq 1 && -n "$AST_RULE_DIR" ]] || return 1
-  local outfmt="--json"; [[ "$FORMAT" == "sarif" ]] && outfmt="--sarif"
-  if "${AST_GREP_CMD[@]}" scan -r "$AST_RULE_DIR" "$PROJECT_DIR" $outfmt 2>/dev/null; then
+  if [[ -n "$AST_RULE_RESULTS_JSON" && -f "$AST_RULE_RESULTS_JSON" ]]; then
     return 0
-  else
+  fi
+  local tmp_json rc
+  tmp_json="$(mktemp 2>/dev/null || mktemp -t ag_results.XXXXXX)"
+  rc=0
+  shopt -s nullglob
+  for rule_file in "$AST_RULE_DIR"/*.yml; do
+    if ! "${AST_GREP_CMD[@]}" scan --rule "$rule_file" "$PROJECT_DIR" --json=stream >>"$tmp_json" 2>/dev/null; then
+      rc=1
+      break
+    fi
+  done
+  shopt -u nullglob
+  if [[ "$rc" -ne 0 ]]; then
+    rm -f "$tmp_json"
     return 1
   fi
+  AST_RULE_RESULTS_JSON="$tmp_json"
+  return 0
+}
+
+run_ast_rules() {
+  [[ "$HAS_AST_GREP" -eq 1 && -n "$AST_RULE_DIR" ]] || return 1
+  if [[ "$FORMAT" == "sarif" ]]; then
+    if "${AST_GREP_CMD[@]}" scan -r "$AST_RULE_DIR" "$PROJECT_DIR" --sarif 2>/dev/null; then
+      return 0
+    else
+      return 1
+    fi
+  fi
+  if ! ensure_ast_rule_results; then
+    return 1
+  fi
+  cat "$AST_RULE_RESULTS_JSON"
+  return 0
 }
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -1791,6 +1955,7 @@ TOTAL_FILES=$(
   | wc -l | awk '{print $1+0}'
 )
 say "${WHITE}Files:${RESET}    ${CYAN}$TOTAL_FILES source files (${INCLUDE_EXT})${RESET}"
+say "${DIM}Focus areas include NULL SAFETY, SECURITY VULNERABILITIES, Lightweight taint analysis, async pitfalls, and resource lifecycle.${RESET}"
 
 # ast-grep availability
 echo ""
@@ -2162,18 +2327,18 @@ if [ "$count" -gt 0 ]; then
 fi
 
 print_subheader "Prototype pollution vulnerability"
-count=$("${GREP_RN[@]}" -e "__proto__|constructor\.prototype" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+proto_pattern="(\\.__proto__|\\['__proto__'\\]|\\[\"__proto__\"\\]|__proto__\\s*:|constructor\\.prototype)"
+count=$("${GREP_RN[@]}" -e "$proto_pattern" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
 if [ "$count" -gt 0 ]; then
   print_finding "critical" "$count" "Potential prototype pollution" "Never modify __proto__ or constructor.prototype"
-  show_detailed_finding "__proto__|constructor\.prototype" 3
+  show_detailed_finding "$proto_pattern" 3
 fi
 
 print_subheader "Hardcoded secrets/credentials"
-count=$("${GREP_RNI[@]}" -e "password[[:space:]]*=|api_?key[[:space:]]*=|secret[[:space:]]*=|token[[:space:]]*=" "$PROJECT_DIR" 2>/dev/null | \
-  (grep -v "password.*:.*type\|//" || true) | count_lines)
+count=$("${GREP_RNI[@]}" -e "\b(password|api_?key|secret|token)\b[[:space:]]*[:=][[:space:]]*['\"]([^'\"]+)['\"]" "$PROJECT_DIR" 2>/dev/null |   (grep -v "process\.env" || true) | count_lines)
 if [ "$count" -gt 0 ]; then
   print_finding "critical" "$count" "Possible hardcoded secrets" "Use environment variables or secret managers"
-  show_detailed_finding "password[[:space:]]*=|api_?key[[:space:]]*=|secret[[:space:]]*=" 3
+  show_detailed_finding "\b(password|api_?key|secret|token)\b[[:space:]]*[:=][[:space:]]*['\"]" 3
 fi
 
 print_subheader "RegExp denial of service (ReDoS) risk"
@@ -2213,8 +2378,8 @@ print_subheader "Nested callbacks (callback hell)"
 count=$("${GREP_RN[@]}" -e "function" "$PROJECT_DIR" 2>/dev/null | \
   (grep -A10 "function" || true) | (grep -c "function" || true) )
 count=$(printf '%s\n' "$count" | awk 'END{print $0+0}')
-if [ "$count" -gt 15 ]; then
-  print_finding "warning" "$count" "Deep callback nesting detected" "Prefer async/await or Promises"
+if [ "$count" -gt 40 ]; then
+  print_finding "info" "$count" "Many callback-style functions detected" "Review for unnecessary nesting; prefer async/await or Promises"
 fi
 
 print_subheader "Function declarations inside blocks"
@@ -2246,20 +2411,83 @@ print_subheader "parseInt without radix parameter"
 count=$("${GREP_RN[@]}" -e "parseInt\(" "$PROJECT_DIR" 2>/dev/null | \
   (grep -Ev ",[[:space:]]*(10|16|8|2)\)" || true) | count_lines)
 if [ "$count" -gt 0 ]; then
-  print_finding "critical" "$count" "parseInt without radix - causes octal/format bugs" "Always use parseInt(x, 10)"
+  print_finding "info" "$count" "parseInt without explicit radix" "Specify base (e.g., parseInt(x, 10)) for clarity"
   show_detailed_finding "parseInt\(" 5
 else
   print_finding "good" "All parseInt calls specify radix"
 fi
 
 print_subheader "JSON.parse without try/catch"
-count=$("${GREP_RN[@]}" -e "JSON\.parse\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
-trycatch_count=$( ("${GREP_RNW[@]}" -B2 "try" "$PROJECT_DIR" 2>/dev/null || true) \
-  | (grep -c "JSON\.parse" || true))
-trycatch_count=$(printf '%s\n' "$trycatch_count" | awk 'END{print $0+0}')
-if [ "$count" -gt "$trycatch_count" ]; then
-  ratio=$((count - trycatch_count))
-  print_finding "warning" "$ratio" "JSON.parse without error handling" "Wrap in try/catch or validate input first"
+json_parse_report=$(python3 - "$PROJECT_DIR" <<'PY' 2>/dev/null
+import os
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+exts = {'.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'}
+skip_dirs = {'.git', 'node_modules', 'dist', 'build', 'coverage', '.next', '.cache', '.turbo'}
+
+issues = []
+max_lookback = 8
+
+for dirpath, dirnames, filenames in os.walk(root):
+    dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+    for fname in filenames:
+        lower = fname.lower()
+        if not any(lower.endswith(ext) for ext in exts):
+            continue
+        path = Path(dirpath) / fname
+        try:
+            lines = path.read_text(encoding='utf-8').splitlines()
+        except Exception:
+            continue
+        for idx, line in enumerate(lines):
+            if 'JSON.parse' not in line:
+                continue
+            stripped_line = line.strip()
+            if not stripped_line or stripped_line.startswith('//'):
+                continue
+            safe = False
+            checks = 0
+            back_idx = idx - 1
+            while back_idx >= 0 and checks < max_lookback:
+                prev = lines[back_idx].strip()
+                back_idx -= 1
+                if not prev or prev.startswith('//') or prev.startswith('/*'):
+                    continue
+                checks += 1
+                tokens = ''.join(ch if ch.isalnum() else ' ' for ch in prev).split()
+                if 'try' in tokens:
+                    safe = True
+                    break
+            if safe:
+                continue
+            try:
+                rel = path.relative_to(root)
+            except ValueError:
+                rel = path
+            issues.append((str(rel), idx + 1, stripped_line.replace('\t', ' ')))
+
+print(len(issues))
+for entry in issues[:25]:
+    print('\t'.join(str(part) for part in entry))
+PY
+)
+json_parse_count=$(printf '%s\n' "$json_parse_report" | head -n1 | awk 'END{print $0+0}')
+json_parse_samples=$(printf '%s\n' "$json_parse_report" | tail -n +2)
+if [ "$json_parse_count" -gt 0 ]; then
+  print_finding "warning" "$json_parse_count" "JSON.parse without error handling" "Wrap in try/catch or validate input first"
+else
+  print_finding "good" "JSON.parse usage appears guarded by try/catch"
+fi
+if [ "$json_parse_count" -gt 0 ] && [[ -n "$json_parse_samples" ]]; then
+  sample_limit=5
+  while IFS=$'\t' read -r sample_path sample_line sample_text; do
+    [ -z "$sample_path" ] && continue
+    say "    ${DIM}$sample_path:$sample_line${RESET}  $sample_text"
+    sample_limit=$((sample_limit - 1))
+    [ "$sample_limit" -le 0 ] && break
+  done <<<"$json_parse_samples"
 fi
 
 print_subheader "parseFloat precision issues"
@@ -2449,13 +2677,124 @@ else
 fi
 
 print_subheader "Global variable pollution"
-count=$("${GREP_RN[@]}" -e "^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=" "$PROJECT_DIR" 2>/dev/null | \
-  (grep -v -E "^[[:space:]]*//|const|let|var|function|class|import|export" || true) | count_lines)
-if [ "$count" -gt 5 ]; then
-  print_finding "critical" "$count" "Global variable assignments" "Missing const/let. Creates globals"
-  show_detailed_finding "^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=" 5
-elif [ "$count" -gt 0 ]; then
-  print_finding "warning" "$count" "Possible global variable pollution"
+global_pollution_report=$(python3 - "$PROJECT_DIR" <<'PY' 2>/dev/null
+import os
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+exts = {'.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'}
+skip_dirs = {'.git', 'node_modules', 'dist', 'build', 'coverage', '.next', '.cache', '.turbo'}
+
+assign_re = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=')
+decl_re = re.compile(r'\b(const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)')
+destruct_re = re.compile(r'\b(const|let|var)\s+\{([^}]*)\}')
+func_params_re = re.compile(r'\bfunction\b(?:\s+[A-Za-z_][A-Za-z0-9_]*)?\s*\(([^)]*)\)')
+class_method_re = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*\{', re.MULTILINE)
+skip_keywords = {'if', 'for', 'while', 'switch', 'catch', 'with', 'function', 'class'}
+arrow_paren_re = re.compile(r'\(([^)]*)\)\s*=>')
+arrow_single_re = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)\s*=>')
+
+def record_params(store, blob):
+    for raw in blob.split(','):
+        token = raw.strip()
+        if not token:
+            continue
+        if token.startswith('{') or token.startswith('['):
+            continue
+        token = token.split('=')[0].strip()
+        if token.startswith('...'):
+            token = token[3:]
+        if re.match(r'[A-Za-z_][A-Za-z0-9_]*$', token):
+            store.add(token)
+
+issues = []
+
+def scan_file(path):
+    try:
+        text = path.read_text(encoding='utf-8')
+    except Exception:
+        try:
+            text = path.read_text(encoding='latin-1')
+        except Exception:
+            return
+    declared = set(name for _, name in decl_re.findall(text))
+    for match in destruct_re.finditer(text):
+        entries = match.group(2).split(',')
+        for entry in entries:
+            token = entry.strip()
+            if not token:
+                continue
+            token = token.split(':')[0].strip()
+            token = token.split('=')[0].strip()
+            token = token.lstrip('*&')
+            if re.match(r'[A-Za-z_][A-Za-z0-9_]*$', token):
+                declared.add(token)
+    for match in func_params_re.finditer(text):
+        record_params(declared, match.group(1))
+    for match in class_method_re.finditer(text):
+        name = match.group(1)
+        if name in skip_keywords:
+            continue
+        record_params(declared, match.group(2))
+    for match in arrow_paren_re.finditer(text):
+        record_params(declared, match.group(1))
+    for match in arrow_single_re.finditer(text):
+        token = match.group(1)
+        if token.startswith(('function', 'class')):
+            continue
+        if re.match(r'[A-Za-z_][A-Za-z0-9_]*$', token):
+            declared.add(token)
+    lines = text.splitlines()
+    for idx, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith('//'):
+            continue
+        match = assign_re.match(line)
+        if not match:
+            continue
+        prefix = line[:match.start(1)]
+        if any(kw in prefix for kw in ('const ', 'let ', 'var ', 'class ', 'function ', 'import ', 'export ')):
+            continue
+        name = match.group(1)
+        if name in declared:
+            continue
+        issues.append((path, idx, stripped))
+
+for dirpath, dirnames, filenames in os.walk(root):
+    dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+    for fname in filenames:
+        lower = fname.lower()
+        if not any(lower.endswith(ext) for ext in exts):
+            continue
+        scan_file(Path(dirpath) / fname)
+
+print(len(issues))
+for path, line_no, text in issues[:25]:
+    try:
+        rel = path.relative_to(root)
+    except ValueError:
+        rel = path
+    safe_text = text.replace('\t', ' ').strip()
+    print(f"{rel}\t{line_no}\t{safe_text}")
+PY
+)
+global_pollution_count=$(printf '%s\n' "$global_pollution_report" | head -n1 | awk 'END{print $0+0}')
+global_pollution_samples=$(printf '%s\n' "$global_pollution_report" | tail -n +2)
+if [ "$global_pollution_count" -gt 5 ]; then
+  print_finding "critical" "$global_pollution_count" "Global variable assignments" "Missing const/let. Creates globals"
+elif [ "$global_pollution_count" -gt 0 ]; then
+  print_finding "warning" "$global_pollution_count" "Possible global variable pollution"
+fi
+if [ "$global_pollution_count" -gt 0 ] && [[ -n "$global_pollution_samples" ]]; then
+  sample_limit=5
+  while IFS=$'\t' read -r sample_path sample_line sample_text; do
+    [ -z "$sample_path" ] && continue
+    say "    ${DIM}$sample_path:$sample_line${RESET}  $sample_text"
+    sample_limit=$((sample_limit - 1))
+    [ "$sample_limit" -le 0 ] && break
+  done <<<"$global_pollution_samples"
 fi
 
 print_subheader "Variable shadowing"
@@ -2614,6 +2953,8 @@ if [ "$count" -gt 0 ]; then print_finding "warning" "$count" "Synchronous fs.*Sy
 print_subheader "Dynamic require()"
 count=$("${GREP_RN[@]}" -e "require\(\s*\+|require\(\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\)" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
 if [ "$count" -gt 0 ]; then print_finding "info" "$count" "Dynamic require/variable module path" "Hinders bundling and caching"; fi
+
+run_node_api_checks
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
