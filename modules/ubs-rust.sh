@@ -393,8 +393,8 @@ text = path.read_text()
 names = re.findall(r'let\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*tokio::spawn', text)
 missing = []
 for name in names:
-    patt_await = re.compile(rf"{name}\.await")
-    patt_abort = re.compile(rf"{name}\.abort")
+    patt_await = re.compile(rf"\b{name}\.await")
+    patt_abort = re.compile(rf"\b{name}\.abort")
     if patt_await.search(text) or patt_abort.search(text):
         continue
     missing.append(name)
