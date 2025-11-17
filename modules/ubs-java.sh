@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════════════
-# JAVA ULTIMATE BUG SCANNER v1.1 - Industrial-Grade Java 21+ Code Analysis
+# JAVA ULTIMATE BUG SCANNER v1.2 - Industrial-Grade Java 21+ Code Analysis
 # ═══════════════════════════════════════════════════════════════════════════
 # Comprehensive static analysis for Java using ast-grep + semantic patterns
 # + build-tool checks (Maven/Gradle), formatting/lint integrations (optional)
 # Focus: Null/Optional pitfalls, equals/hashCode, concurrency/async, security,
 # I/O/resources, performance, regex/strings, serialization, code quality.
 #
-# Features (expanded):
-#   - Colorful, CI-friendly TTY output with NO_COLOR support
+# Enhancements in v1.2:
+#   - Safer date handling (no eval), robust file counting with proper -prune
+#   - New flags: --no-emoji, --min-severity, --sarif-out, --json-out
+#   - Output filtering by severity for text format
+#   - Stronger AST rules (plain HTTP, ReDoS, Closeable without TWR, Optional negation)
+#   - Consolidated duplicate findings; fixed stray detection outside category
+#   - Better CI/TUI handling and IFS hygiene
+#
+# Features:
+#   - Colorful, CI-friendly TTY output with NO_COLOR support and optional NO_EMOJI
 #   - Robust find/rg search with include/exclude globs
 #   - Heuristics + AST rule packs (Java) written on-the-fly
-#   - JSON/SARIF passthrough from ast-grep rule scans
+#   - JSON/SARIF passthrough & optional files from ast-grep rule scans
 #   - Category skip/selection, verbosity, sample snippets
 #   - Parallel jobs for ripgrep
 #   - Exit on critical or optionally on warnings
@@ -21,18 +29,20 @@
 set -Eeuo pipefail
 shopt -s lastpipe
 shopt -s extglob
+set -o errtrace
+
+# Ensure predictable IFS for loops (restored on exit)
+ORIG_IFS=${IFS}
+IFS=$' \t\n'
 
 # ────────────────────────────────────────────────────────────────────────────
 # Error trapping
 # ────────────────────────────────────────────────────────────────────────────
 on_err() {
-  # Use safe expansions so we don't trip set -u before color variables are defined
   local ec=$?; local cmd=${BASH_COMMAND}; local line=${BASH_LINENO[0]}; local src=${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}
   local _RED=${RED:-}; local _BOLD=${BOLD:-}; local _RESET=${RESET:-}; local _DIM=${DIM:-}; local _WHITE=${WHITE:-}
-  # Avoid recursive error loops by disabling ERR trap while printing
   trap - ERR
-  echo -e "\n${_RED}${_BOLD}Unexpected error (exit $ec)${_RESET} ${_DIM}at ${src}:${line}${_RESET}\n${_DIM}Last command:${_RESET} ${_WHITE}$cmd${_RESET}" >&2
-  # Re-enable trap and exit with original code
+  echo -e "\n${_RED}${_BOLD}Unexpected error (exit $ec)${_RESET} ${_DIM}at ${src}:${line}${_RESET}\n${_DIM}Last command:${_RESET} ${_WHITE}${cmd}${_RESET}" >&2
   trap on_err ERR
   exit "$ec"
 }
@@ -43,6 +53,7 @@ trap on_err ERR
 # ────────────────────────────────────────────────────────────────────────────
 USE_COLOR=1
 if [[ -n "${NO_COLOR:-}" || ! -t 1 ]]; then USE_COLOR=0; fi
+NO_EMOJI=${NO_EMOJI:-0}
 
 if [[ "$USE_COLOR" -eq 1 ]]; then
   RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'
@@ -53,7 +64,11 @@ else
   BOLD=''; DIM=''; RESET=''
 fi
 
-CHECK="✓"; CROSS="✗"; WARN="⚠"; INFO="ℹ"; ARROW="→"; BULLET="•"; MAGNIFY="🔍"; BUG="🐛"; FIRE="🔥"; SPARKLE="✨"; SHIELD="🛡"; WRENCH="🛠"; ROCKET="🚀"
+if [[ "${NO_EMOJI}" -eq 1 ]]; then
+  CHECK="OK"; CROSS="X"; WARN="WARN"; INFO="INFO"; ARROW="->"; BULLET="*"; MAGNIFY="[sg]"; BUG="[bug]"; FIRE="CRIT"; SPARKLE=""; SHIELD="[sec]"; WRENCH="[fix]"; ROCKET="[run]"
+else
+  CHECK="✓"; CROSS="✗"; WARN="⚠"; INFO="ℹ"; ARROW="→"; BULLET="•"; MAGNIFY="🔍"; BUG="🐛"; FIRE="🔥"; SPARKLE="✨"; SHIELD="🛡"; WRENCH="🛠"; ROCKET="🚀"
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # CLI Parsing & Configuration
@@ -61,7 +76,7 @@ CHECK="✓"; CROSS="✗"; WARN="⚠"; INFO="ℹ"; ARROW="→"; BULLET="•"; MAG
 VERBOSE=0
 PROJECT_DIR="."
 OUTPUT_FILE=""
-FORMAT="text"          # text|json|sarif (text implemented; ast-grep emits json/sarif in rule-pack mode)
+FORMAT="text"          # text|json|sarif
 ONLY_CATEGORIES=""
 DETAIL_LIMIT_OVERRIDE=""
 CI_MODE=0
@@ -76,6 +91,9 @@ MAX_DETAILED=250
 JOBS="${JOBS:-0}"
 USER_RULE_DIR=""
 DISABLE_PIPEFAIL_DURING_SCAN=1
+SARIF_OUT=""
+JSON_OUT=""
+MIN_SEVERITY="info"     # info|warning|critical
 
 RUN_BUILD=1
 JAVA_REQUIRED_MAJOR=21
@@ -107,6 +125,7 @@ Options:
   --format=FMT               Output format: text|json|sarif (default: text)
   --ci                       CI mode (stable timestamps, no screen clear)
   --no-color                 Force disable ANSI color
+  --no-emoji                 Disable emoji/pictograms in output
   --only=CSV                 Run only these categories (numbers), e.g. --only=1,4,16
   --detail=N                 Show up to N code samples per finding (overrides -v/-q)
   --include-ext=CSV          File extensions (default: java)
@@ -116,10 +135,13 @@ Options:
   --fail-on-warning          Exit non-zero on warnings or critical
   --rules=DIR                Additional ast-grep rules directory (merged)
   --no-build                 Skip Maven/Gradle compile/lint tasks
+  --sarif-out=FILE           Save ast-grep SARIF to FILE (independent of --format)
+  --json-out=FILE            Save ast-grep JSON stream to FILE (independent of --format)
+  --min-severity=LEVEL       Filter text output: info|warning|critical (default: info)
   -h, --help                 Show help
 
 Env:
-  JOBS, NO_COLOR, CI
+  JOBS, NO_COLOR, NO_EMOJI, CI
 
 Args:
   PROJECT_DIR                Directory to scan (default: ".")
@@ -133,6 +155,7 @@ while [[ $# -gt 0 ]]; do
     -q|--quiet)   VERBOSE=0; DETAIL_LIMIT=1; QUIET=1; shift;;
     --format=*)   FORMAT="${1#*=}"; shift;;
     --ci)         CI_MODE=1; shift;;
+    --no-emoji)   NO_EMOJI=1; shift;;
     --only=*)     ONLY_CATEGORIES="${1#*=}"; shift;;
     --detail=*)   DETAIL_LIMIT_OVERRIDE="${1#*=}"; shift;;
     --no-color)   NO_COLOR_FLAG=1; shift;;
@@ -143,6 +166,9 @@ while [[ $# -gt 0 ]]; do
     --fail-on-warning) FAIL_ON_WARNING=1; shift;;
     --rules=*)    USER_RULE_DIR="${1#*=}"; shift;;
     --no-build)   RUN_BUILD=0; shift;;
+    --sarif-out=*) SARIF_OUT="${1#*=}"; shift;;
+    --json-out=*)  JSON_OUT="${1#*=}"; shift;;
+    --min-severity=*) MIN_SEVERITY="${1#*=}"; shift;;
     -h|--help)    print_usage; exit 0;;
     *)
       if [[ "$PROJECT_DIR" == "." && ! "$1" =~ ^- ]]; then
@@ -155,13 +181,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 if [[ -n "$DETAIL_LIMIT_OVERRIDE" ]]; then DETAIL_LIMIT="$DETAIL_LIMIT_OVERRIDE"; fi
-
 if [[ -n "${CI:-}" ]]; then CI_MODE=1; fi
 if [[ "$NO_COLOR_FLAG" -eq 1 ]]; then USE_COLOR=0; fi
 if [[ -n "${OUTPUT_FILE}" ]]; then exec > >(tee "${OUTPUT_FILE}") 2>&1; fi
 
+# Stable timestamp function (no eval)
 DATE_FMT='%Y-%m-%d %H:%M:%S'
-if [[ "$CI_MODE" -eq 1 ]]; then DATE_CMD="date -u '+%Y-%m-%dT%H:%M:%SZ'"; else DATE_CMD="date '+$DATE_FMT'"; fi
+now() { if [[ "$CI_MODE" -eq 1 ]]; then date -u '+%Y-%m-%dT%H:%M:%SZ'; else date "+${DATE_FMT}"; fi; }
 
 # ────────────────────────────────────────────────────────────────────────────
 # Global counters
@@ -225,7 +251,7 @@ IFS=',' read -r -a _EXT_ARR <<<"$INCLUDE_EXT"
 INCLUDE_GLOBS=()
 for e in "${_EXT_ARR[@]}"; do INCLUDE_GLOBS+=( "--include=*.$(echo "$e" | xargs)" ); done
 
-EXCLUDE_DIRS=(target build out .gradle .idea .vscode .git .settings .mvn .generated node_modules dist coverage .cache .hg .svn .DS_Store)
+EXCLUDE_DIRS=(target build out .gradle .idea .vscode .git .settings .mvn .generated node_modules dist coverage .cache .hg .svn .DS_Store .tox .venv .pnpm-store .yarn .yarn/cache)
 if [[ -n "$EXTRA_EXCLUDES" ]]; then IFS=',' read -r -a _X <<<"$EXTRA_EXCLUDES"; EXCLUDE_DIRS+=("${_X[@]}"); fi
 EXCLUDE_FLAGS=()
 for d in "${EXCLUDE_DIRS[@]}"; do EXCLUDE_FLAGS+=( "--exclude-dir=$d" ); done
@@ -234,7 +260,7 @@ if command -v rg >/dev/null 2>&1; then
   HAS_RG=1
   if [[ "${JOBS}" -eq 0 ]]; then JOBS="$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu 2>/dev/null || echo 0 )"; fi
   RG_JOBS=(); if [[ "${JOBS}" -gt 0 ]]; then RG_JOBS=(-j "$JOBS"); fi
-  RG_BASE=(--no-config --no-messages --line-number --with-filename --hidden "${RG_JOBS[@]}")
+  RG_BASE=(--no-config --no-messages --line-number --with-filename --hidden --colors=never "${RG_JOBS[@]}")
   RG_EXCLUDES=()
   for d in "${EXCLUDE_DIRS[@]}"; do RG_EXCLUDES+=( -g "!$d/**" ); done
   RG_INCLUDES=()
@@ -243,13 +269,18 @@ if command -v rg >/dev/null 2>&1; then
   GREP_RNI=(rg -i "${RG_BASE[@]}" "${RG_EXCLUDES[@]}" "${RG_INCLUDES[@]}")
   GREP_RNW=(rg -w "${RG_BASE[@]}" "${RG_EXCLUDES[@]}" "${RG_INCLUDES[@]}")
 else
-  GREP_R_OPTS=(-R --binary-files=without-match "${EXCLUDE_FLAGS[@]}" "${INCLUDE_GLOBS[@]}")
+  GREP_R_OPTS=(-R --binary-files=without-match --line-number "${EXCLUDE_FLAGS[@]}" "${INCLUDE_GLOBS[@]}")
   GREP_RN=("grep" "${GREP_R_OPTS[@]}" -n -E)
   GREP_RNI=("grep" "${GREP_R_OPTS[@]}" -n -i -E)
   GREP_RNW=("grep" "${GREP_R_OPTS[@]}" -n -w -E)
 fi
 
 count_lines() { awk 'END{print (NR+0)}'; }
+severity_allows() {
+  declare -A rank=( [info]=1 [warning]=2 [critical]=3 )
+  local s="$1"; local want="${MIN_SEVERITY}"
+  [[ ${rank[$s]:-0} -ge ${rank[$want]:-1} ]]
+}
 
 maybe_clear() { if [[ -t 1 && "$CI_MODE" -eq 0 ]]; then clear || true; fi; }
 say() { [[ "$QUIET" -eq 1 ]] && return 0; echo -e "$*"; }
@@ -280,21 +311,27 @@ print_finding() {
       case $severity in
         critical)
           CRITICAL_COUNT=$((CRITICAL_COUNT + count))
-          say "  ${RED}${BOLD}${FIRE} CRITICAL${RESET} ${WHITE}($count found)${RESET}"
-          say "    ${RED}${BOLD}$title${RESET}"
-          [ -n "$description" ] && say "    ${DIM}$description${RESET}" || true
+          if severity_allows "critical"; then
+            say "  ${RED}${BOLD}${FIRE} CRITICAL${RESET} ${WHITE}($count found)${RESET}"
+            say "    ${RED}${BOLD}$title${RESET}"
+            [ -n "$description" ] && say "    ${DIM}$description${RESET}" || true
+          fi
           ;;
         warning)
           WARNING_COUNT=$((WARNING_COUNT + count))
-          say "  ${YELLOW}${WARN} Warning${RESET} ${WHITE}($count found)${RESET}"
-          say "    ${YELLOW}$title${RESET}"
-          [ -n "$description" ] && say "    ${DIM}$description${RESET}" || true
+          if severity_allows "warning"; then
+            say "  ${YELLOW}${WARN} Warning${RESET} ${WHITE}($count found)${RESET}"
+            say "    ${YELLOW}$title${RESET}"
+            [ -n "$description" ] && say "    ${DIM}$description${RESET}" || true
+          fi
           ;;
         info)
           INFO_COUNT=$((INFO_COUNT + count))
-          say "  ${BLUE}${INFO} Info${RESET} ${WHITE}($count found)${RESET}"
-          say "    ${BLUE}$title${RESET}"
-          [ -n "$description" ] && say "    ${DIM}$description${RESET}" || true
+          if severity_allows "info"; then
+            say "  ${BLUE}${INFO} Info${RESET} ${WHITE}($count found)${RESET}"
+            say "    ${BLUE}$title${RESET}"
+            [ -n "$description" ] && say "    ${DIM}$description${RESET}" || true
+          fi
           ;;
       esac
       ;;
@@ -310,6 +347,7 @@ print_code_sample() {
 show_detailed_finding() {
   local pattern=$1; local limit=${2:-$DETAIL_LIMIT}; local printed=0
   while IFS=: read -r file line code; do
+    [[ -z "$file" || -z "$line" ]] && continue
     print_code_sample "$file" "$line" "$code"; printed=$((printed+1))
     [[ $printed -ge $limit || $printed -ge $MAX_DETAILED ]] && break
   done < <("${GREP_RN[@]}" -e "$pattern" "$PROJECT_DIR" 2>/dev/null | head -n "$limit" || true) || true
@@ -381,20 +419,19 @@ id: java.async.then-no-exceptionally
 language: java
 rule:
   any:
-    - pattern: $CF.thenApply($ARGS)
-    - pattern: $CF.thenCompose($ARGS)
-    - pattern: $CF.thenAccept($ARGS)
+    - pattern: $CF.thenApply($$)
+    - pattern: $CF.thenCompose($$)
+    - pattern: $CF.thenAccept($$)
   not:
-    has:
-      pattern: .exceptionally($HANDLER)
+    inside:
+      pattern: $CF.exceptionally($$)
 YAML
   tmp_json="$(mktemp 2>/dev/null || mktemp -t java_async_matches.XXXXXX)"
   : >"$tmp_json"
   local rule_file
   for rule_file in "$rule_dir"/*.yml; do
     if ! "${AST_GREP_CMD[@]}" scan -r "$rule_file" "$PROJECT_DIR" --json=stream >>"$tmp_json" 2>/dev/null; then
-      rm -rf "$rule_dir"
-      rm -f "$tmp_json"
+      rm -rf "$rule_dir"; rm -f "$tmp_json"
       print_finding "info" 0 "ast-grep scan failed" "Unable to compute async error coverage"
       return
     fi
@@ -412,9 +449,7 @@ YAML
     local severity=${ASYNC_ERROR_SEVERITY[$rid]:-warning}
     local summary=${ASYNC_ERROR_SUMMARY[$rid]:-$rid}
     local desc=${ASYNC_ERROR_REMEDIATION[$rid]:-"Handle async exceptions"}
-    if [[ -n "$samples" ]]; then
-      desc+=" (e.g., $samples)"
-    fi
+    if [[ -n "$samples" ]]; then desc+=" (e.g., $samples)"; fi
     print_finding "$severity" "$count" "$summary" "$desc"
   done < <(python3 - "$tmp_json" <<'PY'
 import json, sys
@@ -423,25 +458,23 @@ path = sys.argv[1]
 stats = OrderedDict()
 with open(path, 'r', encoding='utf-8') as fh:
     for line in fh:
-        line = line.strip()
-        if not line:
-            continue
+        line=line.strip()
+        if not line: continue
         try:
-            obj = json.loads(line)
+            obj=json.loads(line)
         except json.JSONDecodeError:
             continue
-        rid = obj.get('rule_id') or obj.get('id') or obj.get('ruleId')
-        if not rid:
-            continue
-        rng = obj.get('range') or {}
-        start = rng.get('start') or {}
-        line_no = start.get('row', 0) + 1
-        file_path = obj.get('file', '?')
-        entry = stats.setdefault(rid, {'count': 0, 'samples': []})
-        entry['count'] += 1
-        if len(entry['samples']) < 3:
+        rid=(obj.get('rule_id') or obj.get('id') or obj.get('ruleId'))
+        if not rid: continue
+        rng=obj.get('range') or {}
+        start=rng.get('start') or {}
+        line_no=(start.get('row', 0) + 1)
+        file_path=obj.get('file','?')
+        entry=stats.setdefault(rid, {'count':0,'samples':[]})
+        entry['count']+=1
+        if len(entry['samples'])<3:
             entry['samples'].append(f"{file_path}:{line_no}")
-for rid, data in stats.items():
+for rid,data in stats.items():
     print(f"{rid}\t{data['count']}\t{','.join(data['samples'])}")
 PY
 )
@@ -467,7 +500,6 @@ begin_scan_section(){
   if [[ "$DISABLE_PIPEFAIL_DURING_SCAN" -eq 1 ]]; then set +o pipefail; fi
   set +e
   trap - ERR
-  # NB: scanning phase is best-effort; we restore strictness in end_scan_section
 }
 end_scan_section(){
   trap on_err ERR
@@ -563,6 +595,16 @@ rule:
   pattern: $O.orElse(null)
 severity: info
 message: "Optional.orElse(null) reintroduces null; reconsider design"
+YAML
+
+  # New: not-preferred !isEmpty()
+  cat >"$AST_RULE_DIR/optional-isEmpty-negation.yml" <<'YAML'
+id: java.optional-isempty-negation
+language: java
+rule:
+  pattern: if (!$O.isEmpty()) { $$ }
+severity: info
+message: "Prefer isPresent() to !isEmpty() for clarity or use ifPresent(...)"
 YAML
 
   # ====== Logging best practices ======
@@ -743,11 +785,14 @@ severity: warning
 message: "Weak hash algorithm detected (MD5/SHA-1); prefer SHA-256/512"
 YAML
 
+  # Plain HTTP literals via AST + regex
   cat >"$AST_RULE_DIR/plain-http.yml" <<'YAML'
 id: java.plain-http
 language: java
 rule:
-  pattern: "http://$REST"
+  all:
+    - kind: string_literal
+    - regex: '^"http://'
 severity: info
 message: "Plain HTTP URL detected; ensure HTTPS for production"
 YAML
@@ -809,12 +854,14 @@ severity: info
 message: "Reflection reduces type safety; ensure strict validation"
 YAML
 
-  # ====== Regex ======
+  # ====== Regex (ReDoS) ======
   cat >"$AST_RULE_DIR/regex-nested-quant.yml" <<'YAML'
 id: java.regex-redos
 language: java
 rule:
-  pattern: "((.*\\+.*)\\+)|((.*\\*.*)\\+)"
+  all:
+    - kind: string_literal
+    - regex: '(".*(\(\?:?[^"]*[+*][^"]*\)[+*][^"]*)+")'
 severity: warning
 message: "Regex with nested quantifiers; potential ReDoS"
 YAML
@@ -839,15 +886,33 @@ rule:
   any:
     - pattern: java.lang.Thread.ofVirtual().start($$)
     - pattern: java.lang.Thread.ofVirtual().factory()
-    - pattern: new jdk.internal.vm.Continuation($$)
 severity: info
 message: "Virtual threads detected; ensure blocking I/O is appropriate or use async APIs"
+YAML
+
+  # ====== Closeable without try-with-resources (heuristic) ======
+  cat >"$AST_RULE_DIR/closeable-no-twr.yml" <<'YAML'
+id: java.closeable-no-twr
+language: java
+rule:
+  pattern: |
+    $T $V = new $C($$);
+  constraints:
+    C:
+      regex: '.*(Stream|Reader|Writer|Scanner|Connection|Channel).*'
+  not:
+    inside:
+      kind: try_with_resources_statement
+severity: info
+message: "Closeable created outside try-with-resources; ensure it is closed"
 YAML
 }
 
 run_ast_rules() {
   [[ "$HAS_AST_GREP" -eq 1 && -n "$AST_RULE_DIR" ]] || return 1
   local outfmt="--json"; [[ "$FORMAT" == "sarif" ]] && outfmt="--sarif"
+  if [[ -n "$SARIF_OUT" ]]; then "${AST_GREP_CMD[@]}" scan -r "$AST_RULE_DIR" "$PROJECT_DIR" --sarif > "$SARIF_OUT" 2>/dev/null || true; fi
+  if [[ -n "$JSON_OUT" ]]; then "${AST_GREP_CMD[@]}" scan -r "$AST_RULE_DIR" "$PROJECT_DIR" --json=stream > "$JSON_OUT" 2>/dev/null || true; fi
   "${AST_GREP_CMD[@]}" scan -r "$AST_RULE_DIR" "$PROJECT_DIR" $outfmt 2>/dev/null
 }
 
@@ -879,13 +944,11 @@ detect_gradle_tasks() {
 # ────────────────────────────────────────────────────────────────────────────
 should_run() {
   local cat="$1"
-  # If ONLY_CATEGORIES specified, run only listed
   if [[ -n "$ONLY_CATEGORIES" ]]; then
     IFS=',' read -r -a only_arr <<<"$ONLY_CATEGORIES"
     for s in "${only_arr[@]}"; do [[ "$s" == "$cat" ]] && return 0; done
     return 1
   fi
-  # Otherwise, run everything except explicit skips
   if [[ -z "$SKIP_CATEGORIES" ]]; then return 0; fi
   IFS=',' read -r -a skip_arr <<<"$SKIP_CATEGORIES"
   for s in "${skip_arr[@]}"; do [[ "$s" == "$cat" ]] && return 1; done
@@ -947,22 +1010,15 @@ BANNER
 echo -e "${RESET}"
 
 say "${WHITE}Project:${RESET}  ${CYAN}$PROJECT_DIR${RESET}"
-say "${WHITE}Started:${RESET}  ${GRAY}$(eval "$DATE_CMD")${RESET}"
+say "${WHITE}Started:${RESET}  ${GRAY}$(now)${RESET}"
 
-# Count files
-EX_PRUNE=()
-for d in "${EXCLUDE_DIRS[@]}"; do EX_PRUNE+=( -name "$d" -o ); done
-EX_PRUNE=( \( -type d \( "${EX_PRUNE[@]}" -false \) -prune \) )
-NAME_EXPR=( \( )
-first=1
-for e in "${_EXT_ARR[@]}"; do
-  if [[ $first -eq 1 ]]; then NAME_EXPR+=( -name "*.${e}" ); first=0
-  else NAME_EXPR+=( -o -name "*.${e}" ); fi
-done
-NAME_EXPR+=( \) )
+# Count files (robust prune + include patterns)
 TOTAL_FILES=$(
-  ( set +o pipefail; find "$PROJECT_DIR" "${EX_PRUNE[@]}" -o \( -type f "${NAME_EXPR[@]}" -print \) 2>/dev/null || true ) \
-  | wc -l | awk '{print $1+0}'
+  ( set +o pipefail;
+    find "$PROJECT_DIR" \
+      \( $(printf -- "-name %q -o " "${EXCLUDE_DIRS[@]}") -false \) -prune -o \
+      \( -type f \( $(printf -- "-name '*.%s' -o " "${_EXT_ARR[@]}") -false \) -print \) 2>/dev/null || true
+  ) | wc -l | awk '{print $1+0}'
 )
 say "${WHITE}Files:${RESET}    ${CYAN}$TOTAL_FILES source files (${INCLUDE_EXT})${RESET}"
 
@@ -1004,9 +1060,8 @@ print_category "Detects: Optional.get(), == null checks misuse, Objects.equals o
 
 print_subheader "Optional.get() usage (potential NoSuchElementException)"
 opt_get_ast=$(ast_search '$O.get()' || echo 0)
-# Fallback regex: we can't perfectly know the receiver type; we still show samples.
 opt_get_rg=$("${GREP_RN[@]}" -e "\.get\(\s*\)" "$PROJECT_DIR" 2>/dev/null | (grep -vE "\.getClass\(" || true) | count_lines || true)
-opt_total=$(( opt_get_ast>0 ? opt_get_ast : opt_get_rg ))
+opt_total=$(( (opt_get_ast>0) ? opt_get_ast : opt_get_rg ))
 if [ "$opt_total" -gt 0 ]; then
   print_finding "warning" "$opt_total" "Optional.get() detected" "Prefer orElse/orElseThrow or ifPresent"
   show_detailed_finding "\.get\(\)" 5
@@ -1034,7 +1089,12 @@ print_category "Detects: String '==' compares, BigDecimal equals(), equals/hashC
 print_subheader "String compared with '=='"
 str_eq_ast=$(ast_search '$X == $Y' || echo 0)
 str_eq_lit=$("${GREP_RN[@]}" -e "==[[:space:]]*\"|\"[[:space:]]*==" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
-if [ "$str_eq_lit" -gt 0 ]; then print_finding "warning" "$str_eq_lit" "String compared with '=='" "Use equals() or Objects.equals(a,b)"; show_detailed_finding "==[[:space:]]*\"|\"[[:space:]]*==" 5; else print_finding "good" "No String '==' comparisons detected"; fi
+if [ "$str_eq_lit" -gt 0 ]; then
+  print_finding "warning" "$str_eq_lit" "String compared with '=='" "Use equals() or Objects.equals(a,b)"
+  show_detailed_finding "==[[:space:]]*\"|\"[[:space:]]*==" 5
+else
+  print_finding "good" "No String '==' comparisons detected"
+fi
 
 print_subheader "BigDecimal.equals vs compareTo"
 bd_eq=$("${GREP_RN[@]}" -e "BigDecimal" "$PROJECT_DIR" 2>/dev/null | (grep -E "\.equals\(" || true) | count_lines || true)
@@ -1049,11 +1109,11 @@ while IFS= read -r f; do
     print_code_sample "$f" "$(grep -nE 'boolean[[:space:]]+equals\s*\(' "$f" | head -n1 | cut -d: -f1)" "equals(...) missing hashCode()"
   fi
 done < <(find "$PROJECT_DIR" -type f \( -name "*.java" \) -print 2>/dev/null)
-fi
 
 print_subheader "Boxed primitives compared with '==' (heuristic)"
 boxed_eq=$("${GREP_RN[@]}" -e "\b(Integer|Long|Short|Byte|Boolean|Double|Float)\b[^;\n]*==[^;\n]*" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
 if [ "$boxed_eq" -gt 0 ]; then print_finding "info" "$boxed_eq" "Boxed primitives using '==' - consider equals()/Objects.equals()"; fi
+fi
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CATEGORY 3: CONCURRENCY & THREADING
@@ -1103,7 +1163,7 @@ weak_hash=$(( $(ast_search 'java.security.MessageDigest.getInstance("MD5")' || e
 if [ "$weak_hash" -gt 0 ]; then print_finding "warning" "$weak_hash" "Weak hash detected - prefer SHA-256/512"; fi
 
 print_subheader "Plain HTTP URLs"
-http_url=$(( $(ast_search '"http://$REST"' || echo 0) + $("${GREP_RN[@]}" -e "http://[A-Za-z0-9]" "$PROJECT_DIR" 2>/dev/null | count_lines || true) ))
+http_url=$(( $(ast_search 'all: [ { kind: string_literal }, { regex: "^\"http://" } ]' || echo 0) + $("${GREP_RN[@]}" -e "http://[A-Za-z0-9]" "$PROJECT_DIR" 2>/dev/null | count_lines || true) ))
 if [ "$http_url" -gt 0 ]; then print_finding "info" "$http_url" "Plain HTTP URL(s) present"; fi
 
 print_subheader "Java deserialization"
@@ -1135,10 +1195,6 @@ print_subheader "Files.readAllBytes / large reads inside loops"
 read_all_bytes_loop=$("${GREP_RN[@]}" -e "for[[:space:]]*\(|while[[:space:]]*\(" "$PROJECT_DIR" 2>/dev/null | (grep -A4 "Files\.readAllBytes\(" || true) | (grep -c "Files\.readAllBytes\(" || true))
 read_all_bytes_loop=$(echo "$read_all_bytes_loop" | awk 'END{print $0+0}')
 if [ "$read_all_bytes_loop" -gt 0 ]; then print_finding "warning" "$read_all_bytes_loop" "Files.readAllBytes in loop - consider streaming"; fi
-
-print_subheader "File.delete() without result check"
-del_unchecked=$("${GREP_RN[@]}" -e "\.delete\(\)\s*;" "$PROJECT_DIR" 2>/dev/null | (grep -vE "if\s*\(|assert|check|ensure" || true) | count_lines)
-if [ "$del_unchecked" -gt 0 ]; then print_finding "info" "$del_unchecked" "File.delete() return value not checked"; fi
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1400,7 +1456,6 @@ if [[ "$RUN_BUILD" -eq 1 ]]; then
     fi
   fi
 else
-  # Preserve informational output for parity with other sections
   print_finding "info" 1 "Build checks disabled (--no-build)"
 fi
 fi
@@ -1469,7 +1524,7 @@ paths_plus=$(( $(ast_search 'java.nio.file.Paths.get($A + $B)' || echo 0) + $("$
 if [ "$paths_plus" -gt 0 ]; then print_finding "info" "$paths_plus" "Paths.get with '+' - prefer resolve()/varargs"; fi
 
 print_subheader "Unchecked File.delete()"
-del_unchecked=$("${GREP_RN[@]}" -e "\.delete\(\)\s*;" "$PROJECT_DIR" 2>/dev/null | (grep -vE "if\s*\(|assert|check|ensure" || true) | count_lines)
+del_unchecked=$("${GREP_RN[@]}" -e "\.delete\(\)\s*;" "$PROJECT_DIR" 2>/dev/null | (grep -vE "if\s*\(|assert|check|ensure|\\?:" || true) | count_lines)
 if [ "$del_unchecked" -gt 0 ]; then print_finding "info" "$del_unchecked" "File.delete() return value not checked"; fi
 fi
 
@@ -1543,7 +1598,7 @@ if [ "$CRITICAL_COUNT" -eq 0 ] && [ "$WARNING_COUNT" -eq 0 ]; then
 fi
 
 echo ""
-END_TS="$(eval "$DATE_CMD")"
+END_TS="$(now)"
 say "${DIM}Scan completed at: ${END_TS}${RESET}"
 
 if [[ -n "$OUTPUT_FILE" ]]; then
@@ -1558,11 +1613,11 @@ say "${DIM}Add to CI: ./ubs --ci --fail-on-warning . > java-bug-scan.txt${RESET}
 echo ""
 
 if [[ "$FORMAT" == "json" ]]; then
-  # Emit a compact JSON footer with summary stats
   emit_json_summary
 fi
 
 EXIT_CODE=0
 if [ "$CRITICAL_COUNT" -gt 0 ]; then EXIT_CODE=1; fi
 if [ "$FAIL_ON_WARNING" -eq 1 ] && [ $((CRITICAL_COUNT + WARNING_COUNT)) -gt 0 ]; then EXIT_CODE=1; fi
+IFS=${ORIG_IFS}
 exit "$EXIT_CODE"
