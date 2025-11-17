@@ -19,6 +19,29 @@ curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scan
 
 ---
 
+## 🛠 Python Tooling (uv + CPython 3.13)
+
+All helper scripts (manifest runner, fixtures, inline analyzers inside `ubs`) now assume a single source of truth: **CPython 3.13 managed by [uv](https://github.com/astral-sh/uv)** living inside `.venv/` at the repo root.
+
+```bash
+# 1) Install uv (one-time)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 2) Create the managed environment defined by pyproject.toml / uv.lock
+uv sync --python 3.13
+
+# 3) Activate it whenever you work in this repo (puts .venv/bin first on PATH)
+source .venv/bin/activate
+
+# 4) Run any Python entrypoint through the env
+uv run python test-suite/run_manifest.py --case js-core-buggy
+# ...or rely on 'python'/'python3' now that they point at .venv/bin/python3.13
+```
+
+> ℹ️ Shell scripts that invoke `python3` (language modules under `modules/`, `test-suite/run_all.sh`, etc.) automatically pick up `.venv/bin/python3` as long as the environment is activated or `.venv/bin` is on your `PATH`. The pinned `pyproject.toml` + `uv.lock` are the single source of truth for this toolchain.
+
+---
+
 ## 💥 **The Problem: AI Moves Fast, Bugs Move Faster**
 
 You're coding faster than ever with Claude Code, Codex, Cursor, and other AI coding agents. You're shipping features in minutes that used to take days. **But here's the painful truth:**

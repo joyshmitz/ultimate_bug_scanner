@@ -78,6 +78,21 @@ Every directory has its own README summarizing the files and the scanner categor
 
 ## 🧪 Running Tests
 
+### Prerequisite: uv + CPython 3.13
+
+The repo ships a `pyproject.toml`/`uv.lock` pair that pins us to Python 3.13. Sync the environment once and either activate `.venv` or wrap commands with `uv run`:
+
+```bash
+cd ultimate_bug_scanner
+uv sync --python 3.13
+source .venv/bin/activate  # or: uv run python <command>
+
+# smoke-test the manifest runner with the pinned interpreter
+uv run python test-suite/run_manifest.py --case js-core-buggy
+```
+
+All subsequent examples below assume that `.venv/bin` is on your `PATH` so `python`/`python3` resolve to that managed interpreter.
+
 ### Scan Individual Buggy Files
 
 ```bash
