@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════════════
-# SWIFT ULTIMATE BUG SCANNER v1.4.3 (Bash) - Industrial-Grade Code Analysis
+# SWIFT ULTIMATE BUG SCANNER v1.6.0 (Bash) - Industrial-Grade Code Analysis
 # ═══════════════════════════════════════════════════════════════════════════
 # Comprehensive static analysis for modern Swift (6.2+) for iOS & macOS using:
 #   • ast-grep (rule packs; language: swift)
@@ -27,9 +27,10 @@
 #   --summary-json FILE  (machine-readable run summary with rule histogram)
 #   --report-md FILE     (markdown summary)
 #   --emit-csv FILE      (CSV of per-category counts)
+#   --emit-html FILE     (HTML summary)
 #   --max-detailed N     (cap detailed code samples)
 #   --list-categories    (print category index and exit)
-#   --list-rules         (print embedded ast-grep rule ids and exit)
+#   --list-rules         (print embedded + user ast-grep rule ids and exit)
 #   --timeout-seconds N  (global external tool timeout budget)
 #   --baseline FILE      (compare current totals to prior summary JSON)
 #   --max-file-size SIZE (ripgrep limit, e.g., 25M)
@@ -49,7 +50,7 @@ shopt -s lastpipe || true
 shopt -s extglob || true
 shopt -s compat31 || true
 
-VERSION="1.4.3"
+VERSION="1.6.0"
 SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 on_err() {
@@ -64,11 +65,14 @@ USE_COLOR=0; FORCE_COLOR=0; NO_COLOR_FLAG=0; COLOR_MODE="auto"
 RED=''; GREEN=''; YELLOW=''; BLUE=''; ORANGE=''; MAGENTA=''; CYAN=''; WHITE=''; GRAY=''
 BOLD=''; DIM=''; RESET=''
 init_colors() {
-  if [[ -n "${NO_COLOR:-}" ]]; then USE_COLOR=0; fi
-  if [[ "$NO_COLOR_FLAG" -eq 1 ]]; then USE_COLOR=0; fi
-  if [[ "$COLOR_MODE" == "always" ]]; then USE_COLOR=1; elif [[ "$COLOR_MODE" == "never" ]]; then USE_COLOR=0; elif [[ ! -t 1 ]]; then USE_COLOR=0; fi
-  if [[ "$FORCE_COLOR" -eq 1 ]]; then USE_COLOR=1; fi
-  if [[ -n "${OUTPUT_FILE:-}" && "$FORCE_COLOR" -eq 0 && "$NO_COLOR_FLAG" -eq 0 ]]; then USE_COLOR=0; fi
+  # Respect NO_COLOR env, --no-color, and --color=never; otherwise TTY/CI heuristics.
+  if [[ -n "${NO_COLOR:-}" || "$NO_COLOR_FLAG" -eq 1 || "$COLOR_MODE" == "never" ]]; then USE_COLOR=0; fi
+  # If forced, override everything.
+  if [[ "$FORCE_COLOR" -eq 1 || "$COLOR_MODE" == "always" ]]; then USE_COLOR=1; fi
+  # If writing to a file and not explicitly forced, default to no color.
+  if [[ -n "${OUTPUT_FILE:-}" && "$FORCE_COLOR" -eq 0 && "$COLOR_MODE" != "always" ]]; then USE_COLOR=0; fi
+  # If stdout not a TTY, disable unless forced.
+  if [[ ! -t 1 && "$FORCE_COLOR" -eq 0 && "$COLOR_MODE" != "always" ]]; then USE_COLOR=0; fi
   if [[ "$USE_COLOR" -eq 1 ]]; then
     RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'
     ORANGE='\033[0;33m'; MAGENTA='\033[0;35m'; CYAN='\033[0;36m'; WHITE='\033[1;37m'; GRAY='\033[0;90m'
@@ -119,12 +123,17 @@ USER_RULE_DIR=""
 SUMMARY_JSON=""
 REPORT_MD=""
 EMIT_CSV=""
+EMIT_HTML=""
 TIMEOUT_CMD=""
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-0}"
 AST_PASSTHROUGH=0
 SDK_KIND="${SDK_KIND:-ios}"
 LIST_RULES=0
 PROGRESS=0
+AG_STREAM_FILE=""
+AG_STREAM_READY=0
+
+die(){ echo -e "${RED}${BOLD}fatal:${RESET} ${WHITE}$*${RESET}" >&2; exit 2; }
 
 # Category filter hook
 CATEGORY_WHITELIST=""
@@ -222,11 +231,13 @@ Options:
   --summary-json=FILE     Write machine-readable summary JSON
   --report-md=FILE        Write a Markdown summary (human-friendly)
   --emit-csv=FILE         Write a CSV of per-category counts
+  --emit-html=FILE        Write an HTML summary
   --max-detailed=N        Cap number of detailed samples (default: $MAX_DETAILED)
   --sdk=KIND              ios|macos|tvos|watchos (default: $SDK_KIND)
   --progress              Show minimal progress dots
 Env:
   JOBS, NO_COLOR, CI, TIMEOUT_SECONDS, MAX_FILE_SIZE, SUBS_CATEGORY_FILTER
+  UBS_INCLUDE_OPTIONALS_IN_TOTALS=1 to include external analyzer counts
 Args:
   PROJECT_DIR             Directory to scan (default: ".")
   OUTPUT_FILE             File to save the report (optional)
@@ -258,6 +269,7 @@ while [[ $# -gt 0 ]]; do
     --summary-json=*) SUMMARY_JSON="${1#*=}"; shift;;
     --report-md=*) REPORT_MD="${1#*=}"; shift;;
     --emit-csv=*) EMIT_CSV="${1#*=}"; shift;;
+    --emit-html=*) EMIT_HTML="${1#*=}"; shift;;
     --max-detailed=*) MAX_DETAILED="${1#*=}"; shift;;
     --sdk=*) SDK_KIND="${1#*=}"; shift;;
     --progress) PROGRESS=1; shift;;
@@ -279,6 +291,7 @@ case "$FORMAT" in
   text|json|sarif) ;;
   *) echo "Unsupported --format=$FORMAT (expected: text|json|sarif)" >&2; exit 2 ;;
 esac
+case "$SDK_KIND" in ios|macos|tvos|watchos) ;; *) SDK_KIND="ios";; esac
 
 if [[ "$LIST_CATEGORIES" -eq 1 ]]; then
   cat <<'CAT'
@@ -311,6 +324,8 @@ CRITICAL_COUNT=0
 WARNING_COUNT=0
 INFO_COUNT=0
 TOTAL_FILES=0
+SWIFT_FILE_COUNT=0
+HAS_SWIFT_FILES=0
 
 # ────────────────────────────────────────────────────────────────────────────
 # Global State
@@ -326,6 +341,15 @@ set_category() { CURRENT_CATEGORY_ID="$1"; }
 inc_category_total() {
   local c="${1:-0}"; local id="$CURRENT_CATEGORY_ID"; local vname="CAT${id}"
   eval "$vname=\$(( \${$vname:-0} + c ))"
+}
+_bump_counts() {
+  local sev="$1" cnt="$2"
+  case "$sev" in
+    critical) CRITICAL_COUNT=$((CRITICAL_COUNT + cnt)); eval "CAT${CURRENT_CATEGORY_ID}_critical=\$(( \${CAT${CURRENT_CATEGORY_ID}_critical:-0} + cnt ))";;
+    warning)  WARNING_COUNT=$((WARNING_COUNT + cnt));  eval "CAT${CURRENT_CATEGORY_ID}_warning=\$(( \${CAT${CURRENT_CATEGORY_ID}_warning:-0} + cnt ))";;
+    info)     INFO_COUNT=$((INFO_COUNT + cnt));         eval "CAT${CURRENT_CATEGORY_ID}_info=\$(( \${CAT${CURRENT_CATEGORY_ID}_info:-0} + cnt ))";;
+  esac
+  inc_category_total "$cnt"
 }
 HAS_AST_GREP=0
 AST_GREP_CMD=()
@@ -389,15 +413,6 @@ print_category() { say "\n${MAGENTA}${BOLD}▓▓▓ $1${RESET}\n${DIM}$2${RESET
 print_subheader() { say "\n${YELLOW}${BOLD}$BULLET $1${RESET}"; }
 
 print_finding() {
-  local _bump_counts() {
-    local sev="$1" cnt="$2"
-    case "$sev" in
-      critical) CRITICAL_COUNT=$((CRITICAL_COUNT + cnt)); eval "CAT${CURRENT_CATEGORY_ID}_critical=\$(( \${CAT${CURRENT_CATEGORY_ID}_critical:-0} + cnt ))";;
-      warning)  WARNING_COUNT=$((WARNING_COUNT + cnt));  eval "CAT${CURRENT_CATEGORY_ID}_warning=\$(( \${CAT${CURRENT_CATEGORY_ID}_warning:-0} + cnt ))";;
-      info)     INFO_COUNT=$((INFO_COUNT + cnt));         eval "CAT${CURRENT_CATEGORY_ID}_info=\$(( \${CAT${CURRENT_CATEGORY_ID}_info:-0} + cnt ))";;
-    esac
-    inc_category_total "$cnt"
-  }
   local severity=$1
   case $severity in
     good)
@@ -463,17 +478,6 @@ write_ast_rules() {
   [[ "$HAS_AST_GREP" -eq 1 ]] || return 0
   AST_RULE_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t swift_ag_rules.XXXXXX)"
   trap '[[ -n "${AST_RULE_DIR:-}" ]] && rm -rf "$AST_RULE_DIR" || true' EXIT
-  if [[ -n "$USER_RULE_DIR" && -d "$USER_RULE_DIR" ]]; then
-    cp -R "$USER_RULE_DIR"/. "$AST_RULE_DIR"/ 2>/dev/null || true
-  fi
-  if [[ "$LIST_RULES" -eq 1 ]]; then
-    say "${WHITE}${BOLD}Embedded ast-grep rules:${RESET}"
-    for f in "$AST_RULE_DIR"/*.yml 2>/dev/null; do
-      [[ -f "$f" ]] || continue
-      awk 'BEGIN{ id=""; sev="info"; msg="" } /^id:/{id=$2} /^severity:/{sev=$2} /^message:/{sub(/^message:[ ]*/,""); msg=$0; print "  - " id " [" sev "] " msg }' "$f"
-    done
-    exit 0
-  fi
 
   # ── Core Swift rules (reliable regexes for portability across tree-sitter builds) ──
   cat >"$AST_RULE_DIR/force-unwrap.yml" <<'YAML'
@@ -533,7 +537,7 @@ YAML
 id: swift.urlsession.task-no-resume
 language: swift
 rule:
-  regex: "URLSession\\.[A-Za-z_]+\\.(dataTask|uploadTask|downloadTask)\\s*\\([^\\)]*\\)(?!\\s*\\.resume\\s*\\(\\))"
+  regex: "URLSession\\.[A-Za-z_]+\\.(dataTask|uploadTask|downloadTask)\\s*\\([^\\)]*\\)(?![\\s\\S]{0,120}\\.resume\\s*\\(\\))"
 severity: warning
 message: "URLSession task created but not resumed."
 YAML
@@ -571,7 +575,7 @@ YAML
 id: swift.continuation.no-resume
 language: swift
 rule:
-  regex: "with(Checked|Unsafe)Continuation\\s*\\{\\s*[^\\}]*\\bresume\\s*\\("
+  regex: "with(Checked|Unsafe)Continuation\\s*\\{[\\s\\S]*?\\}"
   not:
     regex: "\\bresume\\s*\\("
 severity: critical
@@ -918,6 +922,63 @@ rule:
 severity: info
 message: "Check NSCache key/value for class types and memory behaviors."
 YAML
+
+  # Additional security/network/composition rules (new)
+  cat >"$AST_RULE_DIR/hardcoded-bearer.yml" <<'YAML'
+id: swift.http.header.bearer-literal
+language: swift
+rule:
+  regex: "(?i)Authorization\"?\\s*:\\s*\"?Bearer\\s+[A-Za-z0-9\\._\\-]+\"?"
+severity: warning
+message: "Hardcoded Bearer token-like Authorization header."
+YAML
+
+  cat >"$AST_RULE_DIR/disableats-flag.yml" <<'YAML'
+id: swift.ats.flag.disable
+language: swift
+rule:
+  regex: "(?i)UserDefaults\\.(standard|shared)\\.(set|register)\\([^\\)]*(disableats|allowhttp|insecure)[^\\)]*\\)"
+severity: info
+message: "Security-affecting feature flag toggled via UserDefaults; ensure release build constraints."
+YAML
+
+  # Low-level concurrency & actors (new heuristics)
+  cat >"$AST_RULE_DIR/actor-isolated-escape.yml" <<'YAML'
+id: swift.actor.escaping-reference
+language: swift
+rule:
+  regex: "@MainActor[\\s\\S]*?\\bself\\b[\\s\\S]*?Task\\.detached\\s*\\{"
+severity: info
+message: "Detached task inside @MainActor context; verify crossing actor boundaries."
+YAML
+
+  # Path injection guardrails
+  cat >"$AST_RULE_DIR/process-arg-suspicious.yml" <<'YAML'
+id: swift.process.suspicious-args
+language: swift
+rule:
+  regex: "Process\\s*\\(\\s*[^)]*arguments:\\s*\\[[^\\]]*(;|\\|\\||\\|\\s*grep|\\|\\s*sh)[^\\]]*\\]"
+severity: warning
+message: "Process arguments contain a shell pipeline; avoid shell invocation via arguments."
+YAML
+
+  # Merge user rule dir last if provided
+  if [[ -n "$USER_RULE_DIR" && -d "$USER_RULE_DIR" ]]; then
+    cp -R "$USER_RULE_DIR"/. "$AST_RULE_DIR"/ 2>/dev/null || true
+  fi
+
+  if [[ "$LIST_RULES" -eq 1 ]]; then
+    say "${WHITE}${BOLD}ast-grep rules (embedded + user):${RESET}"
+    shopt -s nullglob
+    for f in "$AST_RULE_DIR"/*.yml; do
+      awk 'BEGIN{ id=""; sev="info"; msg="" }
+           /^id:/        {id=$2}
+           /^severity:/  {sev=$2}
+           /^message:/   {sub(/^message:[ ]*/,"" ); msg=$0; print "  - " id " [" sev "] " msg }' "$f"
+    done
+    shopt -u nullglob
+    exit 0
+  fi
 }
 
 run_ast_rules() {
@@ -930,12 +991,15 @@ run_ast_rules() {
     with_timeout "${AST_GREP_CMD[@]}" scan -r "$AST_RULE_DIR" "$PROJECT_DIR" --lang swift --json 2>/dev/null || return 1
     AST_PASSTHROUGH=1; return 0
   fi
-  local tmp_stream; tmp_stream="$(mktemp -t ag_sw_stream.XXXXXX 2>/dev/null || mktemp -t ag_sw_stream)"
-  ( set +o pipefail; with_timeout "${AST_GREP_CMD[@]}" scan -r "$AST_RULE_DIR" "$PROJECT_DIR" --lang swift --json=stream 2>/dev/null || true ) >"$tmp_stream"
-  if [[ ! -s "$tmp_stream" ]]; then rm -f "$tmp_stream"; return 0; fi
+  if [[ "$AG_STREAM_READY" -eq 0 || -z "$AG_STREAM_FILE" || ! -s "$AG_STREAM_FILE" ]]; then
+    AG_STREAM_FILE="$(mktemp -t ag_sw_stream.XXXXXX 2>/dev/null || mktemp -t ag_sw_stream)"
+    ( set +o pipefail; with_timeout "${AST_GREP_CMD[@]}" scan -r "$AST_RULE_DIR" "$PROJECT_DIR" --lang swift --json=stream 2>/dev/null || true ) >"$AG_STREAM_FILE"
+    [[ -s "$AG_STREAM_FILE" ]] && AG_STREAM_READY=1 || AG_STREAM_READY=0
+  fi
+  if [[ "$AG_STREAM_READY" -ne 1 ]]; then return 0; fi
   print_subheader "ast-grep rule-pack summary"
   if command -v python3 >/dev/null 2>&1; then
-  python3 - "$tmp_stream" "$DETAIL_LIMIT" <<'PY'
+  python3 - "$AG_STREAM_FILE" "$DETAIL_LIMIT" <<'PY'
 import json, sys, collections
 path, limit = sys.argv[1], int(sys.argv[2])
 buckets = collections.OrderedDict()
@@ -966,15 +1030,14 @@ for rid, data in sorted(buckets.items(), key=lambda kv:(sev_rank.get(kv[1]['seve
         print(f"__SAMPLE__\t{f}\t{l}\t{s}")
 PY
   else
-    awk -F'"' '/"rule_id":/ { print "__FINDING__\tinfo\t1\t" $4 "\t(ast-grep match)"}' "$tmp_stream"
+    awk -F'"' '/"rule_id":/ { print "__FINDING__\tinfo\t1\t" $4 "\t(ast-grep match)"}' "$AG_STREAM_FILE"
   fi
   while IFS=$'\t' read -r tag a b c d; do
     case "$tag" in
       __FINDING__) print_finding "$a" "$(num_clamp "$b")" "$c: $d" ;;
       __SAMPLE__)  print_code_sample "$a" "$b" "$c" ;;
     esac
-  done <"$tmp_stream"
-  rm -f "$tmp_stream"
+  done <"$AG_STREAM_FILE"
   return 0
 }
 
@@ -1005,9 +1068,47 @@ run_resource_lifecycle_checks() {
       print_finding "info" 0 "AST helper failed" "See stderr for details"
     fi
   else
-    if [[ ! -f "$helper" ]]; then
-      print_finding "info" 0 "Resource helper missing" "Expected $helper"
-    elif ! command -v python3 >/dev/null 2>&1; then
+    # Inline fallback: emit a minimal scanner if helper file is missing
+    if command -v python3 >/dev/null 2>&1; then
+      local tmp_py; tmp_py="$(mktemp -t ubs_rlc.XXXXXX 2>/dev/null || mktemp -t ubs_rlc)"
+      cat >"$tmp_py" <<'PY'
+import os, re, sys
+root=sys.argv[1]
+rules={
+ 'timer':(re.compile(r'Timer\.scheduledTimer'),re.compile(r'\.invalidate\s*\(')),
+ 'urlsession_task':(re.compile(r'URLSession\.[A-Za-z_]+\.(dataTask|uploadTask|downloadTask)\s*\('), re.compile(r'\.(resume|cancel)\s*\(')),
+ 'notification_token':(re.compile(r'NotificationCenter\.default\.addObserver\([^)]*using:\s*\{'), re.compile(r'removeObserver\s*\(')),
+ 'file_handle':(re.compile(r'FileHandle\((forReading|forWriting|forUpdating)AtPath|forReadingFrom|forWritingTo|forUpdatingAtPath)'), re.compile(r'\.close\s*\(')),
+ 'combine_sink':(re.compile(r'\.sink\s*\('), re.compile(r'\.store\s*\(\s*in:\s*&')),
+ 'dispatch_source':(re.compile(r'DispatchSource\.(makeTimerSource|makeFileSystemObjectSource|makeReadSource|makeWriteSource)'), re.compile(r'\.cancel\s*\('))
+}
+for dp,_,fs in os.walk(root):
+  for fn in fs:
+    if not fn.endswith(('.swift','.mm','.m')): continue
+    p=os.path.join(dp,fn)
+    try:
+      s=open(p,'r',encoding='utf-8',errors='ignore').read()
+    except: continue
+    for kind,(acq,rel) in rules.items():
+      ac=len(acq.findall(s)); rl=len(rel.findall(s))
+      if ac>rl:
+        print(f"{p}\t{kind}\tacquire={ac} cleanup={rl}")
+PY
+      local out
+      out=$(python3 "$tmp_py" "$PROJECT_DIR" 2>/dev/null || true)
+      rm -f "$tmp_py" || true
+      if [[ -n "$out" ]]; then
+        while IFS=$'\t' read -r location kind message; do
+          [[ -z "$location" ]] && continue
+          local summary="${RESOURCE_LIFECYCLE_SUMMARY[$kind]:-Resource imbalance}"
+          local remediation="${RESOURCE_LIFECYCLE_REMEDIATION[$kind]:-Ensure matching cleanup call}"
+          local severity="${RESOURCE_LIFECYCLE_SEVERITY[$kind]:-warning}"
+          print_finding "$severity" 1 "$summary [$location]" "$message; $remediation"
+        done <<<"$out"
+      else
+        print_finding "good" "All tracked resource acquisitions show matching cleanup or usage"
+      fi
+    else
       print_finding "info" 0 "python3 not available" "Install Python 3 to run AST helper"
     fi
   fi
@@ -1132,6 +1233,55 @@ PY
   fi
 }
 
+run_swift_type_narrowing_checks() {
+  print_subheader "Swift guard let validation"
+  if [[ "$HAS_SWIFT_FILES" -eq 0 ]]; then
+    print_finding "info" 0 "No Swift sources detected" "Place .swift files in the project root to enable guard analysis"
+    return 0
+  fi
+  if [[ "${UBS_SKIP_TYPE_NARROWING:-0}" -eq 1 ]]; then
+    print_finding "info" 0 "Swift type narrowing checks skipped" "Set UBS_SKIP_TYPE_NARROWING=0 or drop --skip-type-narrowing to re-enable"
+    return 0
+  fi
+  local helper="$SCRIPT_DIR/helpers/type_narrowing_swift.py"
+  if [[ ! -f "$helper" ]]; then
+    print_finding "info" 0 "Swift type narrowing helper missing" "$helper not found"
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    print_finding "info" 0 "python3 unavailable for Swift helper" "Install python3 to enable guard analysis"
+    return 0
+  fi
+  local output status
+  output="$(python3 "$helper" "$PROJECT_DIR" 2>&1)"
+  status=$?
+  if [[ $status -ne 0 ]]; then
+    print_finding "info" 0 "Swift type narrowing helper failed" "$output"
+    return 0
+  fi
+  if [[ -z "$output" ]]; then
+    print_finding "good" "Swift guard clauses exit before force unwraps"
+    return 0
+  fi
+  local count=0
+  local previews=()
+  while IFS=$'\t' read -r location message; do
+    [[ -z "$location" ]] && continue
+    count=$((count + 1))
+    if [[ ${#previews[@]} -lt 3 ]]; then
+      previews+=("$location → $message")
+    fi
+  done <<< "$output"
+  local desc=""
+  if [[ ${#previews[@]} -gt 0 ]]; then
+    desc="Examples: ${previews[*]}"
+  fi
+  if [[ $count -gt ${#previews[@]} ]]; then
+    desc+=" (and $((count - ${#previews[@]})) more)"
+  fi
+  print_finding "warning" "$count" "Swift guard let else-block may continue" "$desc"
+}
+
 run_plist_checks() {
   print_subheader "Info.plist ATS precise parsing"
   if command -v python3 >/dev/null 2>&1; then
@@ -1192,9 +1342,30 @@ PY
 run_swiftlint() {
   print_subheader "SwiftLint"
   if command -v swiftlint >/dev/null 2>&1; then
-    pushd "$PROJECT_DIR" >/dev/null 2>&1 || true
-    with_timeout swiftlint --quiet --reporter json --strict 2>/dev/null || true
-    popd >/dev/null 2>&1 || true
+    local tmp; tmp="$(mktemp -t ubs_swiftlint.XXXXXX 2>/dev/null || mktemp -t ubs_swiftlint)"
+    (cd "$PROJECT_DIR" && with_timeout swiftlint --reporter json --strict >"$tmp" 2>/dev/null || true)
+    if [[ -s "$tmp" ]] && command -v python3 >/dev/null 2>&1; then
+      read -r errs warns files <<<"$(python3 - "$tmp" <<'PY'
+import json,sys
+try:
+  arr=json.load(open(sys.argv[1],'r',encoding='utf-8'))
+except: print("0 0 0"); sys.exit(0)
+e=w=0; files=set()
+for it in arr:
+  lvl=(it.get("severity") or "").lower()
+  files.add(it.get("file") or "?")
+  if lvl in ("error","serious"): e+=1
+  elif lvl in ("warning"): w+=1
+print(e,w,len(files))
+PY
+)"
+      say "  ${WHITE}Files:${RESET} ${CYAN}${files}${RESET}  ${RED}errors:${RESET} ${RED}${errs}${RESET}  ${YELLOW}warnings:${RESET} ${YELLOW}${warns}${RESET}"
+      opt_push_counts warning "$((warns))"
+      opt_push_counts critical "$((errs))"
+    else
+      say "  ${GRAY}${INFO} No SwiftLint issues or non-JSON output${RESET}"
+    fi
+    rm -f "$tmp" || true
   else
     say "  ${GRAY}${INFO} SwiftLint not installed${RESET}"
   fi
@@ -1202,9 +1373,16 @@ run_swiftlint() {
 run_swiftformat() {
   print_subheader "SwiftFormat (lint mode)"
   if command -v swiftformat >/dev/null 2>&1; then
-    pushd "$PROJECT_DIR" >/dev/null 2>&1 || true
-    with_timeout swiftformat "$PROJECT_DIR" --lint --quiet 2>/dev/null || true
-    popd >/dev/null 2>&1 || true
+    local tmp; tmp="$(mktemp -t ubs_swiftformat.XXXXXX 2>/dev/null || mktemp -t ubs_swiftformat)"
+    with_timeout swiftformat "$PROJECT_DIR" --lint --quiet >"$tmp" 2>/dev/null || true
+    local c; c=$(wc -l <"$tmp" | awk '{print $1+0}')
+    if [[ "$c" -gt 0 ]]; then
+      say "  ${YELLOW}${WARN} SwiftFormat suggestions:${RESET} ${WHITE}${c}${RESET}"
+      opt_push_counts info "$c"
+    else
+      say "  ${GREEN}${CHECK} No SwiftFormat findings${RESET}"
+    fi
+    rm -f "$tmp" || true
   else
     say "  ${GRAY}${INFO} SwiftFormat not installed${RESET}"
   fi
@@ -1212,9 +1390,16 @@ run_swiftformat() {
 run_periphery() {
   print_subheader "Periphery (dead code)"
   if command -v periphery >/dev/null 2>&1; then
-    pushd "$PROJECT_DIR" >/dev/null 2>&1 || true
-    with_timeout periphery scan --quiet || true
-    popd >/dev/null 2>&1 || true
+    local tmp; tmp="$(mktemp -t ubs_periphery.XXXXXX 2>/dev/null || mktemp -t ubs_periphery)"
+    (cd "$PROJECT_DIR" && with_timeout periphery scan --quiet >"$tmp" 2>/dev/null || true)
+    local unused; unused=$(grep -cE 'unused' "$tmp" 2>/dev/null || echo 0)
+    if [[ "$unused" -gt 0 ]]; then
+      say "  ${YELLOW}${WARN} Periphery unused symbols:${RESET} ${WHITE}${unused}${RESET}"
+      opt_push_counts info "$unused"
+    else
+      say "  ${GREEN}${CHECK} No obvious dead code reported${RESET}"
+    fi
+    rm -f "$tmp" || true
   else
     say "  ${GRAY}${INFO} Periphery not installed${RESET}"
   fi
@@ -1237,13 +1422,31 @@ run_xcodebuild_analyze() {
         SCHEME=$(xcodebuild -list -json -workspace "$xcw" 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); s=(d.get("workspace",{}) or {}).get("schemes") or []; print(s[0] if s else "")' 2>/dev/null)
       fi
       [[ -z "$SCHEME" ]] && SCHEME="$(basename "$xcw" .xcworkspace)"
-      with_timeout xcodebuild -workspace "$xcw" -scheme "$SCHEME" analyze $sdkflag 2>/dev/null || true
+      local tmp; tmp="$(mktemp -t ubs_xc_analyze.XXXXXX 2>/dev/null || mktemp -t ubs_xc_analyze)"
+      with_timeout xcodebuild -workspace "$xcw" -scheme "$SCHEME" analyze $sdkflag >"$tmp" 2>&1 || true
+      local w e; w=$(grep -c "warning:" "$tmp" || true); e=$(grep -c "error:" "$tmp" || true)
+      if [[ "$w" -gt 0 || "$e" -gt 0 ]]; then
+        say "  ${YELLOW}${WARN} Analyzer:${RESET} ${WHITE}${w}${RESET} warnings, ${RED}${e}${RESET} errors"
+        opt_push_counts warning "$w"; opt_push_counts critical "$e"
+      else
+        say "  ${GREEN}${CHECK} No analyzer issues surfaced${RESET}"
+      fi
+      rm -f "$tmp" || true
     elif [[ -n "$xcp" ]]; then
       if command -v python3 >/dev/null 2>&1; then
         SCHEME=$(xcodebuild -list -json -project "$xcp" 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); s=(d.get("project",{}) or {}).get("schemes") or []; print(s[0] if s else "")' 2>/dev/null)
       fi
       [[ -z "$SCHEME" ]] && SCHEME="$(basename "$xcp" .xcodeproj)"
-      with_timeout xcodebuild -project "$xcp" -scheme "$SCHEME" analyze $sdkflag 2>/dev/null || true
+      local tmp; tmp="$(mktemp -t ubs_xc_analyze.XXXXXX 2>/dev/null || mktemp -t ubs_xc_analyze)"
+      with_timeout xcodebuild -project "$xcp" -scheme "$SCHEME" analyze $sdkflag >"$tmp" 2>&1 || true
+      local w e; w=$(grep -c "warning:" "$tmp" || true); e=$(grep -c "error:" "$tmp" || true)
+      if [[ "$w" -gt 0 || "$e" -gt 0 ]]; then
+        say "  ${YELLOW}${WARN} Analyzer:${RESET} ${WHITE}${w}${RESET} warnings, ${RED}${e}${RESET} errors"
+        opt_push_counts warning "$w"; opt_push_counts critical "$e"
+      else
+        say "  ${GREEN}${CHECK} No analyzer issues surfaced${RESET}"
+      fi
+      rm -f "$tmp" || true
     else
       say "  ${GRAY}${INFO} No Xcode project/workspace found for analyze${RESET}"
     fi
@@ -1286,7 +1489,7 @@ cat <<'BANNER'
 ║  ██╗   ██╗██╗  ████████╗██╗███╗   ███╗ █████╗ ████████╗███████╗   ║
 ║  ██║   ██║██║  ╚══██╔══╝██║████╗ ████║██╔══██╗╚══██╔══╝██╔════╝   ║
 ║  ██║   ██║██║     ██║   ██║██╔████╔██║███████║   ██║   █████╗     ║
-║  ██║   ██║██║     ██║   ██║██║╚██╔╝██║██╔══██║   ██║   ██╔══╝     ║
+║  ██╔══██╗██║     ██║   ██║██║╚██╔╝██║██╔══██║   ██║   ██╔══╝     ║
 ║  ╚██████╔╝███████╗██║   ██║██║ ╚═╝ ██║██║  ██║   ██║   ███████╗   ║
 ║   ╚═════╝ ╚══════╝╚═╝   ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝   ║
 ║                                      ===========::=====           ║
@@ -1313,8 +1516,8 @@ cat <<'BANNER'
 ║  Night Owl QA                                                     ║
 ║  “We see bugs before you do.”                                     ║
 ╚═══════════════════════════════════════════════════════════════════╝
-                                                                     
-BANNER                                                               
+                                                                 
+BANNER
 echo -e "${RESET}"                                                   
 
 say "${WHITE}Version:${RESET} ${CYAN}${VERSION}${RESET}"
@@ -1349,6 +1552,22 @@ else
     | wc -l | awk '{print $1+0}'
   )
 fi
+if [[ "$HAS_RIPGREP" -eq 1 ]]; then
+  SWIFT_FILE_COUNT=$(
+    ( set +o pipefail; rg --files "$PROJECT_DIR" "${RG_EXCLUDES[@]}" "${RG_MAX_SIZE_FLAGS[@]}" -g '*.swift' 2>/dev/null || true ) \
+    | wc -l | awk '{print $1+0}'
+  )
+else
+  SWIFT_FILE_COUNT=$(
+    ( set +o pipefail; find "$PROJECT_DIR" \( "${EX_PRUNE[@]}" -false \) -o \( -type f -name '*.swift' -print \) 2>/dev/null || true ) \
+    | wc -l | awk '{print $1+0}'
+  )
+fi
+if [[ "$SWIFT_FILE_COUNT" -gt 0 ]]; then
+  HAS_SWIFT_FILES=1
+else
+  HAS_SWIFT_FILES=0
+fi
 say "${WHITE}Files:${RESET}    ${CYAN}$TOTAL_FILES source files (${INCLUDE_EXT})${RESET}"
 
 echo ""
@@ -1368,8 +1587,15 @@ if [[ "$FORMAT" == "json" || "$FORMAT" == "sarif" ]]; then
     exit 2
   fi
   tmp_out="$(mktemp -t ubs_ast_${FORMAT}.XXXXXX)"; trap 'rm -f "$tmp_out" 2>/dev/null || true' EXIT
+  write_ast_rules || true
+  # Prefer cached stream for json mode; fall back to direct emit.
   if [[ "$FORMAT" == "json" ]]; then
-    with_timeout "${AST_GREP_CMD[@]}" scan -r "$AST_RULE_DIR" "$PROJECT_DIR" --lang swift --json=stream >"$tmp_out" 2>/dev/null || true
+    if [[ "$AG_STREAM_READY" -eq 0 ]]; then
+      ( set +o pipefail; with_timeout "${AST_GREP_CMD[@]}" scan -r "$AST_RULE_DIR" "$PROJECT_DIR" --lang swift --json=stream 2>/dev/null || true ) >"$tmp_out"
+      AG_STREAM_FILE="$tmp_out"; AG_STREAM_READY=1
+    else
+      cp "$AG_STREAM_FILE" "$tmp_out" 2>/dev/null || true
+    fi
     python3 - <<'PY' "$tmp_out"
 import json,sys
 with open(sys.argv[1],'r',encoding='utf-8') as fh:
@@ -1451,8 +1677,8 @@ fi
 tick
 
 print_subheader "try! and as! occurrences"
-trybang=$("${GREP_RN[@]}" -e "\\btry!" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
-asbang=$("${GREP_RN[@]}" -e "\\bas![[:space:]]" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+trybang=$("${GREP_RN[@]}" -e "\\btry\\!" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+asbang=$("${GREP_RN[@]}" -e "\\bas\\![[:space:]]" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
 if [ "$trybang" -gt 0 ]; then print_finding "critical" "$trybang" "try! used"; show_detailed_finding "\\btry!" 5; else print_finding "good" "No try!"; fi
 if [ "$asbang" -gt 0 ]; then print_finding "warning" "$asbang" "as! used"; show_detailed_finding "\\bas![[:space:]]" 5; fi
 tick
@@ -1460,6 +1686,10 @@ tick
 print_subheader "Implicitly unwrapped optionals (T!)"
 iuo=$("${GREP_RN[@]}" -e "(:|->)[[:space:]]*[A-Za-z_][A-Za-z0-9_<>?:\\.\\[\\] ]*!\\b" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
 if [ "$iuo" -gt 0 ]; then print_finding "warning" "$iuo" "Implicitly unwrapped optionals"; show_detailed_finding "(:|->)[[:space:]]*[A-Za-z_][A-Za-z0-9_<>?:\\.\\[\\] ]*!\\b" 5; else print_finding "good" "No IUO types"; fi
+tick
+
+run_swift_type_narrowing_checks
+tick
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1504,7 +1734,8 @@ print_subheader "Long-lived closures without [weak self]"
 count=$("${GREP_RN[@]}" -e "(URLSession\\.|DispatchQueue\\.(global|main)|Timer\\.scheduledTimer|NotificationCenter\\.default\\.addObserver|UIView\\.animate|NSAnimationContext\\.runAnimationGroup)" "$PROJECT_DIR" 2>/dev/null \
   | (grep -A3 -E "\\{[[:space:]]*(\\[[^]]*\\])?" || true) \
   | (grep -vi "\\[weak self\\]" || true) \
-  | count_lines
+  | count_lines || true
+  )
 if [ "$count" -gt 0 ]; then
   print_finding "warning" "$count" "Potential strong self captures in long-lived closures" "Consider capture list [weak self]"
 fi
@@ -1521,8 +1752,9 @@ print_category "Detects: tasks not resumed, http literals, Data(contentsOf:), in
 tick
 
 print_subheader "URLSession tasks not resumed"
-count=$("${GREP_RN[@]}" -e "URLSession\\.[A-Za-z_]+\\.(dataTask|uploadTask|downloadTask)\\(" "$PROJECT_DIR" 2>/dev/null | \
-  (grep -v "\\.resume\\(\\)" || true) | count_lines)
+count=$("${GREP_RN[@]}" -e "URLSession\\.[A-Za-z_]+\\.(dataTask|uploadTask|downloadTask)\\s*\\([^)]*\\)" "$PROJECT_DIR" 2>/dev/null \
+  | awk -F: '{print $1":"$2}' | sort -u | wc -l | awk '{print $1+0}' || true
+  )
 if [ "$count" -gt 0 ]; then print_finding "warning" "$count" "URLSession tasks lacking resume()"; fi
 tick
 
@@ -1578,7 +1810,7 @@ tick
 
 print_subheader "Trust-all server trust delegates"
 count=$("${GREP_RN[@]}" -e "didReceiveChallenge\\(.*URLAuthenticationChallenge.*\\)" "$PROJECT_DIR" 2>/dev/null | \
-  (grep -E "useCredential|URLCredential\\(trust:" || true) | count_lines )
+  (grep -E "useCredential|URLCredential\\(trust:" || true) | count_lines || true)
 if [ "$count" -gt 0 ]; then print_finding "critical" "$count" "URLSession delegate accepts any trust"; fi
 tick
 
@@ -1623,8 +1855,8 @@ print_category "Detects: FileHandle leaks, blocking reads, path string concat" \
 tick
 
 print_subheader "FileHandle open without close in file"
-count=$("${GREP_RN[@]}" -e "FileHandle\\(for(Read|Write|Updating)[^)]*\\)" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
-closecount=$("${GREP_RN[@]}" -e "\\.close\\(\\)" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+count=$("${GREP_RN[@]}" -e "FileHandle\\((forReading|forWriting|forUpdating)AtPath|forReadingFrom|forWritingTo|forUpdatingAtPath)" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+closecount=$("${GREP_RN[@]}" -e "[^A-Za-z]close\\s*\\(\\)" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
 if [ "$count" -gt 0 ] && [ "$closecount" -lt "$count" ]; then
   diff=$((count - closecount)); [ "$diff" -lt 0 ] && diff=0
   print_finding "warning" "$diff" "FileHandle open without matching close"
@@ -1694,7 +1926,7 @@ print_category "Detects: print/NSLog, debug flags, assertions" \
 tick
 
 print_subheader "print/NSLog occurrences"
-count=$("${GREP_RN[@]}" -e "^[[:space:]]*print\\(|NSLog\\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+count=$("${GREP_RN[@]}" -e "^[[:space:]]*print\\s*\\(|\\bNSLog\\s*\\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
 if [ "$count" -gt 50 ]; then print_finding "warning" "$count" "Many print/NSLog calls"; elif [ "$count" -gt 10 ]; then print_finding "info" "$count" "print/NSLog present"; else print_finding "good" "Minimal print/NSLog"; fi
 tick
 
@@ -1730,13 +1962,13 @@ tick
 
 print_subheader "Combine .sink without .store(in:)"
 count=$("${GREP_RN[@]}" -e "\\.sink\\(" "$PROJECT_DIR" 2>/dev/null | \
-  (grep -v "\\.store\\(in:" || true) | count_lines)
+  (grep -v "\\.store\\(in:" || true) | count_lines || true)
 if [ "$count" -gt 0 ]; then print_finding "warning" "$count" "Combine sinks not stored"; fi
 tick
 
 print_subheader "SwiftUI onReceive capturing self without weak"
 count=$("${GREP_RN[@]}" -e "\\.onReceive\\(" "$PROJECT_DIR" 2>/dev/null | \
-  (grep -A2 -E "\\{[[:space:]]*value" || true) | (grep -v -i "\\[weak self\\]" || true) | count_lines )
+  (grep -A2 -E "\\{[[:space:]]*value" || true) | (grep -v -i "\\[weak self\\]" || true) | count_lines || true)
 if [ "$count" -gt 0 ]; then print_finding "info" "$count" "onReceive without [weak self] (heuristic)"; fi
 fi
 
@@ -1752,13 +1984,13 @@ tick
 
 print_subheader "Timer scheduled without invalidation"
 count=$("${GREP_RN[@]}" -e "Timer\\.scheduledTimer" "$PROJECT_DIR" 2>/dev/null | \
-  (grep -v "invalidate\\(" || true) | count_lines)
+  (grep -v "invalidate\\(" || true) | count_lines || true)
 if [ "$count" -gt 0 ]; then print_finding "warning" "$count" "Timers without invalidate heuristic"; fi
 tick
 
 print_subheader "NotificationCenter block-based without removal"
 count=$("${GREP_RN[@]}" -e "addObserver\\(forName:" "$PROJECT_DIR" 2>/dev/null | \
-  (grep -v "removeObserver" || true) | count_lines)
+  (grep -v "removeObserver" || true) | count_lines || true)
 if [ "$count" -gt 0 ]; then print_finding "warning" "$count" "Observer tokens not removed"; fi
 fi
 
@@ -1810,13 +2042,13 @@ run_plist_checks
 
 print_subheader "ATS allows arbitrary loads"
 count=$("${GREP_RN[@]}" -e "NSAppTransportSecurity|NSAllowsArbitraryLoads" "$PROJECT_DIR" 2>/dev/null | \
-  (grep -E "true|YES" || true) | count_lines)
+  (grep -E "true|YES" || true) | count_lines || true)
 if [ "$count" -gt 0 ]; then print_finding "warning" "$count" "ATS arbitrary loads enabled"; fi
 tick
 
 print_subheader "NSAllowsArbitraryLoadsInWebContent"
 count=$("${GREP_RN[@]}" -e "NSAllowsArbitraryLoadsInWebContent" "$PROJECT_DIR" 2>/dev/null | \
-  (grep -E "true|YES" || true) | count_lines)
+  (grep -E "true|YES" || true) | count_lines || true)
 if [ "$count" -gt 0 ]; then print_finding "info" "$count" "Arbitrary loads in web content enabled"; fi
 fi
 
@@ -1847,7 +2079,7 @@ tick
 
 print_subheader "Debug signing identifiers in Release configs (heuristic)"
 count=$("${GREP_RN[@]}" -e "PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_IDENTITY" "$PROJECT_DIR" 2>/dev/null | \
-  (grep -i "debug" || true) | count_lines )
+  (grep -i "debug" || true) | count_lines || true)
 if [ "$count" -gt 0 ]; then print_finding "info" "$count" "Debug-like signing strings detected"; fi
 fi
 
@@ -1922,7 +2154,7 @@ tick
 
 print_subheader "Hard-coded user-facing strings (heuristic)"
 count=$("${GREP_RN[@]}" -e "UILabel\\(|setTitle\\(|Text\\(\"" "$PROJECT_DIR" 2>/dev/null | \
-  (grep -v "NSLocalizedString" || true) | count_lines )
+  (grep -v "NSLocalizedString" || true) | count_lines || true)
 if [ "$count" -gt 0 ]; then print_finding "info" "$count" "Possible user-facing strings without localization"; fi
 fi
 
@@ -1947,6 +2179,18 @@ fi
 # ═══════════════════════════════════════════════════════════════════════════
 print_header "OPTIONAL ANALYZERS (if installed)"
 resolve_timeout || true
+# Optional analyzers do NOT affect category counters by default to avoid bias,
+# but we still provide clear summaries. If you want them to count, set:
+#   export UBS_INCLUDE_OPTIONALS_IN_TOTALS=1
+opt_push_counts() {
+  if [[ "${UBS_INCLUDE_OPTIONALS_IN_TOTALS:-0}" -ne 1 ]]; then return 0; fi
+  local sev="$1" cnt="$2"
+  case "$sev" in
+    critical) CRITICAL_COUNT=$((CRITICAL_COUNT + cnt));;
+    warning)  WARNING_COUNT=$((WARNING_COUNT + cnt));;
+    info)     INFO_COUNT=$((INFO_COUNT + cnt));;
+  esac
+}
 run_swiftlint
 run_swiftformat
 run_periphery
@@ -2026,9 +2270,9 @@ if [[ -n "$SUMMARY_JSON" ]]; then
       if [[ $i -lt 23 ]]; then printf ','; fi
     done
     printf '},'
-    if [[ -n "$AST_RULE_DIR" && "$HAS_AST_GREP" -eq 1 ]]; then
+    if [[ -n "$AG_STREAM_FILE" && -s "$AG_STREAM_FILE" && "$HAS_AST_GREP" -eq 1 ]]; then
       printf '"ast_grep_rules":['
-      ( set +o pipefail; with_timeout "${AST_GREP_CMD[@]}" scan -r "$AST_RULE_DIR" "$PROJECT_DIR" --lang swift --json=stream 2>/dev/null || true ) \
+      ( set +o pipefail; cat "$AG_STREAM_FILE" 2>/dev/null || true ) \
         | python3 - <<'PY'
 import json,sys,collections
 seen=collections.Counter()
@@ -2084,6 +2328,28 @@ if [[ -n "$EMIT_CSV" ]]; then
     done
   } > "$EMIT_CSV" 2>/dev/null || true
   say "${DIM}CSV emitted to: ${EMIT_CSV}${RESET}"
+fi
+
+if [[ -n "$EMIT_HTML" ]]; then
+  {
+    echo "<!doctype html><meta charset='utf-8'><title>UBS Swift Report</title>"
+    echo "<style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial} table{border-collapse:collapse} td,th{padding:.4rem .6rem;border:1px solid #ddd} .ok{color:#2a7} .warn{color:#c80} .crit{color:#c22}</style>"
+    echo "<h1>UBS Swift Report</h1>"
+    echo "<p><strong>Project:</strong> $(printf %s "$PROJECT_DIR" | sed 's/&/&amp;/g;s/</\&lt;/g')</p>"
+    echo "<p><strong>Files:</strong> $TOTAL_FILES</p>"
+    echo "<p><strong>Timestamp:</strong> $(eval "$DATE_CMD")</p>"
+    echo "<h2>Totals</h2>"
+    echo "<table><tr><th>Critical</th><th>Warning</th><th>Info</th></tr>"
+    echo "<tr><td class='crit'>$CRITICAL_COUNT</td><td class='warn'>$WARNING_COUNT</td><td class='ok'>$INFO_COUNT</td></tr></table>"
+    echo "<h2>Categories</h2>"
+    echo "<table><tr><th>#</th><th>Total</th><th>Critical</th><th>Warning</th><th>Info</th></tr>"
+    for i in $(seq 1 23); do
+      eval "t=\${CAT${i}:-0}"; eval "c=\${CAT${i}_critical:-0}"; eval "w=\${CAT${i}_warning:-0}"; eval "n=\${CAT${i}_info:-0}"
+      echo "<tr><td>$i</td><td>$t</td><td class='crit'>$c</td><td class='warn'>$w</td><td class='ok'>$n</td></tr>"
+    done
+    echo "</table>"
+  } > "$EMIT_HTML" 2>/dev/null || true
+  say "${DIM}HTML report written to: ${EMIT_HTML}${RESET}"
 fi
 
 echo ""
