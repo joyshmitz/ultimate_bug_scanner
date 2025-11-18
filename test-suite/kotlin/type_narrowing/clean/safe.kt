@@ -17,3 +17,26 @@ fun maybeAvatar(url: String?): String {
     val target = url ?: throw IllegalStateException("avatar required")
     return target.substringBefore('.')
 }
+
+fun smartCastSafe(candidate: Any?): String? {
+    val admin = candidate as? MutableMap<String, String> ?: return null
+    return admin["level"]
+}
+
+fun elvisSafe(profile: UserProfile?): Int? {
+    val alias = profile?.email ?: return null
+    return alias.length
+}
+
+class FakeJob {
+    val isActive: Boolean = true
+    fun cancel() {}
+}
+
+fun coroutineJobGuardSafe(job: FakeJob?) {
+    if (job?.isActive != true) {
+        println("no active job")
+        return
+    }
+    job.cancel()
+}

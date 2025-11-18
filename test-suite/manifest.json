@@ -1150,6 +1150,55 @@
       }
     },
     {
+      "id": "swift-type-narrowing-buggy",
+      "description": "Swift guard let clauses that log but continue execution, leading to unsafe optional usage.",
+      "path": "test-suite/swift/type_narrowing/buggy",
+      "language": "java",
+      "tags": [
+        "swift",
+        "type-narrowing",
+        "buggy"
+      ],
+      "args": [
+        "--only=java",
+        "--fail-on-warning"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "warning": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "Swift guard let validation",
+          "Swift guard let else-block may continue"
+        ]
+      }
+    },
+    {
+      "id": "swift-type-narrowing-clean",
+      "description": "Swift guard lets with explicit returns/throws so the analyzer stays quiet on safe code.",
+      "path": "test-suite/swift/type_narrowing/clean",
+      "language": "java",
+      "tags": [
+        "swift",
+        "type-narrowing",
+        "clean"
+      ],
+      "args": [
+        "--only=java"
+      ],
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "warning": {
+            "max": 0
+          }
+        }
+      }
+    },
+    {
       "id": "java-buggy",
       "description": "Java buggy fixtures (blocking service, executors, resource leaks, security).",
       "path": "test-suite/java/buggy",

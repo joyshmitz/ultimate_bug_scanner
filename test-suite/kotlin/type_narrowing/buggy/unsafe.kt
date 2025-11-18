@@ -23,3 +23,25 @@ fun maybeAvatar(url: String?) {
 
     println("avatar host = ${url!!.substringBefore('.')}")
 }
+
+fun smartCast(adminCandidate: Any?) {
+    val admin = adminCandidate as? MutableMap<String, String>
+    println("admin level ${admin!!.getValue(\"level\")}")
+}
+
+fun elvisForce(profile: UserProfile?) {
+    val alias = profile?.email ?: println("no alias yet")
+    println("alias length ${alias!!.length}")
+}
+
+class FakeJob {
+    val isActive: Boolean = true
+    fun cancel() {}
+}
+
+fun coroutineJobGuard(job: FakeJob?) {
+    if (job?.isActive == true) {
+        println("job still running")
+    }
+    job!!.cancel()
+}
