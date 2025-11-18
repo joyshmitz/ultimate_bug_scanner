@@ -7,10 +7,13 @@ import sys
 from pathlib import Path
 
 SKIP_DIRS = {".git", "build", "out", "dist", "target", ".gradle", ".idea", "node_modules"}
-GUARD_PATTERN = re.compile(r"if\s*\(\s*([A-Za-z_][\w]*)\s*(?:==|===)\s*null\s*\)", re.MULTILINE)
+NEGATIVE_GUARD_PATTERN = re.compile(r"if\s*\(\s*([A-Za-z_][\w]*)\s*(?:==|===)\s*null\s*\)", re.MULTILINE)
+POSITIVE_GUARD_PATTERN = re.compile(r"if\s*\(\s*([A-Za-z_][\w]*)\s*!=\s*null\s*\)", re.MULTILINE)
 DOUBLE_BANG_PATTERN = "{name}\\s*!!"
 ASSIGN_PATTERN = re.compile(r"{name}\s*=")
 EXIT_PATTERN = re.compile(r"\b(return|throw|continue|break)\b")
+SMART_CAST_PATTERN = re.compile(r"\b(?:val|var)\s+([A-Za-z_][\w]*)\s*=\s*[^;\n]+as\?\s+[A-Za-z0-9_.]+")
+ELVIS_ASSIGN_PATTERN = re.compile(r"\b(?:val|var)\s+([A-Za-z_][\w]*)\s*=\s*[^;\n]+?\?:")
 
 
 def iter_kotlin_files(root: Path):
@@ -72,10 +75,9 @@ def line_col(text: str, pos: int) -> tuple[int, int]:
     return line, col
 
 
-def analyze_file(path: Path):
-    text = path.read_text(encoding="utf-8", errors="ignore")
+def collect_guard_issues(text: str, pattern: re.Pattern[str], message: str):
     issues = []
-    for match in GUARD_PATTERN.finditer(text):
+    for match in pattern.finditer(text):
         var_name = match.group(1)
         block_text, guard_end = extract_guard_region(text, match.end())
         if contains_exit(block_text):
@@ -89,15 +91,60 @@ def analyze_file(path: Path):
                 break
             assign_match = assign_regex.search(text, search_pos, double_match.start())
             if assign_match:
-                # Variable reassigned before "!!"; treat as safe.
                 break
             absolute_pos = double_match.start()
             line, col = line_col(text, absolute_pos)
-            message = f"{var_name}!! after non-exiting null guard"
-            issues.append((line, col, message))
-            search_pos = double_match.end()
-            break  # only flag first occurrence
+            issues.append((line, col, message.format(name=var_name)))
+            break
     return issues
+
+
+def collect_double_bang_usage(text: str, name: str, start: int) -> tuple[int, int] | None:
+    double_regex = re.compile(DOUBLE_BANG_PATTERN.format(name=re.escape(name)))
+    match = double_regex.search(text, start)
+    if match:
+        return line_col(text, match.start())
+    return None
+
+
+def collect_smart_cast_issues(text: str):
+    issues = []
+    for match in SMART_CAST_PATTERN.finditer(text):
+        name = match.group(1)
+        location = collect_double_bang_usage(text, name, match.end())
+        if location:
+            line, col = location
+            issues.append((line, col, f"{name} forced (!!) after as? smart cast"))
+    return issues
+
+
+def collect_elvis_issues(text: str):
+    issues = []
+    for match in ELVIS_ASSIGN_PATTERN.finditer(text):
+        name = match.group(1)
+        location = collect_double_bang_usage(text, name, match.end())
+        if location:
+            line, col = location
+            issues.append((line, col, f"{name} assigned via Elvis operator but later forced with !!"))
+    return issues
+
+
+def analyze_file(path: Path):
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    issues = []
+    issues.extend(collect_guard_issues(text, NEGATIVE_GUARD_PATTERN, "{name}!! after non-exiting null guard"))
+    issues.extend(collect_guard_issues(text, POSITIVE_GUARD_PATTERN, "{name}!! used after '!= null' guard without exit"))
+    issues.extend(collect_smart_cast_issues(text))
+    issues.extend(collect_elvis_issues(text))
+    deduped = []
+    seen = set()
+    for line, col, message in issues:
+        key = (line, col, message)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append((line, col, message))
+    return deduped
 
 
 def main() -> int:

@@ -197,6 +197,7 @@ WARNING_COUNT=0
 INFO_COUNT=0
 TOTAL_FILES=0
 HAS_KOTLIN_FILES=0
+HAS_SWIFT_FILES=0
 
 # ────────────────────────────────────────────────────────────────────────────
 # Global state
@@ -534,6 +535,50 @@ run_kotlin_type_narrowing_checks() {
     desc+=" (and $((count - ${#previews[@]})) more)"
   fi
   print_finding "warning" "$count" "Kotlin guard without exit before '!!'" "$desc"
+}
+
+run_swift_type_narrowing_checks() {
+  if [[ "$HAS_SWIFT_FILES" -ne 1 ]]; then
+    return 0
+  fi
+  if [[ "${UBS_SKIP_TYPE_NARROWING:-0}" -eq 1 ]]; then
+    print_finding "info" 0 "Swift type narrowing checks skipped" "Set UBS_SKIP_TYPE_NARROWING=0 or remove --skip-type-narrowing to re-enable"
+    return 0
+  fi
+  local helper="$SCRIPT_DIR/helpers/type_narrowing_swift.py"
+  if [[ ! -f "$helper" ]]; then
+    print_finding "info" 0 "Swift type narrowing helper missing" "$helper not found"
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    print_finding "info" 0 "python3 unavailable for Swift helper" "Install python3 to enable Swift guard analysis"
+    return 0
+  fi
+  local output status
+  output="$(python3 "$helper" "$PROJECT_DIR" 2>&1)"
+  status=$?
+  if [[ $status -ne 0 ]]; then
+    print_finding "info" 0 "Swift type narrowing helper failed" "$output"
+    return 0
+  fi
+  if [[ -z "$output" ]]; then
+    print_finding "good" "Swift guard clauses appear to exit safely"
+    return 0
+  fi
+  local count=0
+  local previews=()
+  while IFS=$'\t' read -r location message; do
+    [[ -z "$location" ]] && continue
+    count=$((count + 1))
+    if [[ ${#previews[@]} -lt 3 ]]; then
+      previews+=("$location → $message")
+    fi
+  done <<< "$output"
+  local desc="Examples: ${previews[*]}"
+  if [[ $count -gt ${#previews[@]} ]]; then
+    desc+=" (and $((count - ${#previews[@]})) more)"
+  fi
+  print_finding "warning" "$count" "Swift guard let else-block may continue" "$desc"
 }
 
 run_async_error_checks() {
@@ -1187,6 +1232,14 @@ if ( set +o pipefail;
   HAS_KOTLIN_FILES=1
 fi
 
+if ( set +o pipefail;
+     find "$PROJECT_DIR" \
+       \( -type d \( "${EX_PRUNE[@]}" \) -prune \) -o \
+       \( -type f -name '*.swift' -print -quit \) 2>/dev/null
+   ) | grep -q .; then
+  HAS_SWIFT_FILES=1
+fi
+
 # Tool detection
 echo ""
 if check_ast_grep; then
@@ -1245,6 +1298,10 @@ if [ "$str_eq_null" -gt 0 ]; then print_finding "info" "$str_eq_null" "Null equa
 if [[ "$HAS_KOTLIN_FILES" -eq 1 ]]; then
   print_subheader "Kotlin guard clauses without exit"
   run_kotlin_type_narrowing_checks
+fi
+if [[ "$HAS_SWIFT_FILES" -eq 1 ]]; then
+  print_subheader "Swift guard let validation"
+  run_swift_type_narrowing_checks
 fi
 fi
 
