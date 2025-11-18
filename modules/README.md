@@ -1,6 +1,6 @@
 # UBS Language Modules
 
-Each `ubs-<lang>.sh` provides a consistent CLI (current modules: `js`, `python`, `cpp`, `rust`, `golang`, `java`, `ruby`):
+Each `ubs-<lang>.sh` provides a consistent CLI (current modules: `js`, `python`, `cpp`, `rust`, `golang`, `java`, `ruby`, `swift`):
 
 ```
 ubs-<lang>.sh [PROJECT_DIR] [options]

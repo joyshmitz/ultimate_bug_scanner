@@ -11,7 +11,7 @@ The Ultimate Bug Scanner (`ubs`) is a static analysis tool that **must be run pr
 - Completing a feature implementation
 - Finishing a bug fix
 - Responding to "done" or "ready to commit"
-- After writing more than 50 lines of new code in UBS-supported languages (JavaScript/TypeScript, Python, C/C++, Rust, Go, Java, Ruby)
+- After writing more than 50 lines of new code in UBS-supported languages (JavaScript/TypeScript, Python, C/C++, Rust, Go, Java, Ruby, Swift)
 
 ### ✅ Run Upon Request:
 - User asks "check code quality"

@@ -7,7 +7,7 @@
 - [x] Capture run artifacts per case (stdout/stderr, parsed summary) to simplify debugging failed scanners.
 - [x] Add substring/rule-id requirement checks so we can prove specific categories fire.
 - [x] Extend manifest to Python fixtures once parser stabilizes; include both `test-suite/python/buggy` and `python/clean` directories.
-- [x] Extend manifest to Go, Rust, C++, Java, Ruby fixtures in `test-suite/<lang>/`.
+- [x] Extend manifest to Go, Rust, C++, Java, Ruby, and Swift fixtures in `test-suite/<lang>/`.
 - [x] Investigate why `modules/ubs-js.sh` sometimes reports `Files scanned: 0` even when files exist.
 - [x] Add threshold coverage for edge-case fixtures (unicode, floating-point, timezone).
 - [x] Wire manifest runner into CI once other modules catch up.
@@ -19,7 +19,7 @@
 
 ## Non-JS manifest expansion & docs (ultimate_bug_scanner-ny5)
 - [x] Update `test-suite/README.md` with a multi-language overview, manifest instructions, and tables listing every language’s buggy/clean directories.
-  - [x] Add a quick-start matrix covering JS, Python, Go, C++, Rust, Java, and Ruby fixtures plus their expected categories.
+  - [x] Add a quick-start matrix covering JS, Python, Go, C++, Rust, Java, Ruby, and Swift fixtures plus their expected categories.
   - [x] Document how `run_manifest.py` and `run_all.sh` interact so new contributors know which tool to run.
 - [x] Flesh out per-language READMEs with file-level descriptions modeled after the JS documentation.
 - [x] Expand fixture coverage in each non-JS directory to cover multiple categories (security, resource lifecycle, async, math/precision where applicable) with clean counterparts.
@@ -29,7 +29,7 @@
   - [x] Rust: add security/math fixtures and README notes.
   - [x] Java: add security fixture pair and README notes.
   - [x] Ruby: add performance/concurrency fixture pair and README notes.
-- [x] Add manifest coverage for every language’s `buggy` and `clean` directories (cpp/rust/java/ruby still missing) with severity thresholds + substring checks for signature sections.
+- [x] Add manifest coverage for every language’s `buggy` and `clean` directories (cpp/rust/java/ruby/swift were last to land) with severity thresholds + substring checks for signature sections.
 - [x] Add manifest cases for JS edge-case directories (unicode/timezone/floating-point) with warning thresholds so regressions surface.
 - [x] Extend manifest expectations to include category substrings for the new cases so we prove specific analyzers fire.
 - [x] Update `run_all.sh` to delegate to `run_manifest.py` (or drive manifest cases directly) instead of running bare directory scans.

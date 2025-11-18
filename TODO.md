@@ -7,7 +7,7 @@ All tasks reference Beads issue IDs so progress stays traceable. Update this lis
 - [x] Record baseline in notes/root-scan-2025-11-16.md.
 - [ ] Triage JS critical categories (group by filename / category, identify quick wins).
 - [ ] Create Beads sub-issues for JS hotspots (null safety, math pitfalls, parsing, security).
-- [ ] Repeat triage for Python, Go, Rust, C++, Java, Ruby after JS plan is in place.
+- [ ] Repeat triage for Python, Go, Rust, C++, Java, Ruby, and Swift after JS plan is in place.
 
 ## 2. Manifest coverage expansion (ultimate_bug_scanner-d5z, ultimate_bug_scanner-aqd, ultimate_bug_scanner-o3l)
 - [x] Go: enable buggy/clean manifest entries with `--only=golang` + substring requirement.
