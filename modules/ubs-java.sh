@@ -1247,6 +1247,7 @@ run_ast_rules() {
   if [[ -n "$SARIF_OUT" ]]; then "${AST_GREP_CMD[@]}" scan -r "$AST_RULE_DIR" "$PROJECT_DIR" --sarif > "$SARIF_OUT" 2>/dev/null || true; fi
   if [[ -n "$JSON_OUT" ]]; then "${AST_GREP_CMD[@]}" scan -r "$AST_RULE_DIR" "$PROJECT_DIR" --json=stream > "$JSON_OUT" 2>/dev/null || true; fi
   "${AST_GREP_CMD[@]}" scan -r "$AST_RULE_DIR" "$PROJECT_DIR" $outfmt 2>/dev/null
+}
 
 
 ensure_ast_rule_results() {
@@ -1370,7 +1371,6 @@ PYRULE
     print_finding "good" "$good_msg"
   fi
   return 0
-}
 }
 
 # ────────────────────────────────────────────────────────────────────────────
