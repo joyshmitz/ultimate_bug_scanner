@@ -1289,254 +1289,53 @@ Critical issues found? ────┤ YES
 > **Copy the content below to your project's `AGENTS.md`, `.claude/claude_docs/`, or `.cursorrules` file for comprehensive UBS integration guidance.**
 
 <details>
-<summary><b>📖 Click to expand full AI agent integration guide</b></summary>
+<summary><b>📖 Click to expand UBS quick reference for AI agents</b></summary>
 
-## 🎯 TL;DR for Busy Agents (Start Here!)
+## 🤖 UBS Quick Reference for AI Agents
 
+> Copy to `AGENTS.md` or `.cursorrules` for integration guidance.
+
+**Install:** `curl -sSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/install.sh | bash`
+
+**Golden Rule:** `./ubs <changed-files>` before every commit. Exit 0 = safe. Exit >0 = fix & re-run.
+
+**Commands:**
 ```bash
-# Install UBS (one-time)
-curl -sSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/install.sh | bash
-
-# Run before EVERY commit (scoped to changed files for speed)
-./ubs $(git diff --name-only --cached)
-
-# Exit code 0 = safe to commit ✅
-# Exit code >0 = read findings, fix issues, re-run until clean ⚠️
+./ubs file.ts file2.py                    # Specific files (< 1s) — USE THIS
+./ubs $(git diff --name-only --cached)    # Staged files — before commit
+./ubs --only=js,python src/               # Language filter (3-5x faster)
+./ubs --ci --fail-on-warning .            # CI mode — before PR
+./ubs --help                              # Full command reference
 ```
 
-**Golden Rule:** Always run `./ubs <changed-files>` before creating commits or PRs. If exit code >0, investigate and fix the flagged issues before proceeding.
-
-**Speed Tip:** Scope scans to files you changed: `./ubs src/component.ts` (fast) vs `./ubs .` (slow)
-
----
-
-## 🤖 What is UBS?
-
-Fast multi-language bug scanner that catches critical issues AI agents frequently generate:
-- **Null safety** violations → Runtime crashes
-- **Async/await** missing → Race conditions
-- **XSS/Injection** → Security vulnerabilities
-- **Memory leaks** → Performance degradation
-- **Type narrowing** → Logic bugs
-
-**Why it matters:** Prevents 4-8 hours of debugging runtime issues with a 10-second pre-commit check.
-
----
-
-## 📍 When to Run UBS (5 Critical Checkpoints)
-
-1. **After generating new code** → `./ubs src/new-feature/`
-2. **After editing existing code** → `./ubs src/components/Button.tsx`
-3. **Before creating a commit** → `./ubs $(git diff --name-only --cached)`
-4. **Before creating a PR** → `./ubs --ci .`
-5. **When debugging runtime errors** → `./ubs .` (find similar bugs project-wide)
-
----
-
-## 🎯 How to Run UBS
-
-```bash
-# Scan specific files/directories (FASTEST - use this for incremental work)
-./ubs src/components/Header.tsx src/utils/api.ts
-
-# Scan entire project (use when starting work or before PR)
-./ubs .
-
-# CI/CD mode (fail fast, no color, exit on first error)
-./ubs --ci --fail-on-warning .
-
-# Scan only specific languages (skip irrelevant modules)
-./ubs --only=js,python src/
-
-# Pro tip: Scope to git changes for 10x faster feedback
-./ubs $(git diff --name-only HEAD)        # All uncommitted changes
-./ubs $(git diff --name-only --cached)    # Only staged files
+**Output Format:**
 ```
-
----
-
-## 📊 Reading UBS Output
-
+⚠️  Category (N errors)
+    file.ts:42:5 – Issue description
+    💡 Suggested fix
+Exit code: 1
 ```
-════════════════════════════════════════════════
-🔍 Scanning: src/api/users.ts
-════════════════════════════════════════════════
+Parse: `file:line:col` → location | 💡 → how to fix | Exit 0/1 → pass/fail
 
-⚠️  Null safety violation (1 error)
-    src/api/users.ts:42:5 – Unguarded property access: user.profile.settings
-    💡 Add guard: if (user?.profile?.settings) { ... }
+**Fix Workflow:**
+1. Read finding → category + fix suggestion
+2. Navigate `file:line:col` → view context
+3. Verify real issue (not false positive)
+4. Fix root cause (not symptom)
+5. Re-run `./ubs <file>` → exit 0
+6. Commit
 
-⚠️  Async/await missing (1 error)
-    src/api/users.ts:67:12 – Promise not awaited: fetchUserData(id)
-    💡 Add await: const data = await fetchUserData(id)
+**Speed Critical:** Scope to changed files. `./ubs src/file.ts` (< 1s) vs `./ubs .` (30s). Never full scan for small edits.
 
-════════════════════════════════════════════════
-📋 Summary: 2 errors, 0 warnings
-════════════════════════════════════════════════
-Exit code: 1 (issues found)
-```
+**Bug Severity:**
+- **Critical** (always fix): Null safety, XSS/injection, async/await, memory leaks
+- **Important** (production): Type narrowing, division-by-zero, resource leaks
+- **Contextual** (judgment): TODO/FIXME, console logs
 
-**Parse this structure:**
-- `file:line:col` → Navigate to exact location with Read tool
-- **Category** → Bug class (Null safety, XSS, Async/await, etc.)
-- **💡 Suggestion** → Concrete fix to apply
-- **Exit code** → 0 = clean, >0 = issues found
-
----
-
-## 🔧 Systematic Fix Workflow (6 Steps)
-
-1. **Read the finding** → Understand bug category and suggested fix
-2. **Navigate to location** → Use Read tool to view context around `file:line:col`
-3. **Investigate** → Read ±10 lines to understand intent
-4. **Verify real issue** → Use judgment (some findings are false positives)
-5. **Fix root cause** → Don't just silence warnings; solve the underlying problem
-6. **Re-run & verify** → `./ubs src/api/users.ts` until exit code 0
-
-**Example:**
-```bash
-./ubs src/api/users.ts          # Exit 1: finds 2 errors
-# ...read findings, fix issues...
-./ubs src/api/users.ts          # Exit 0: clean!
-git add src/api/users.ts
-git commit -m "fix(api): Add null guards and await async calls"
-```
-
----
-
-## 🚫 Common Mistakes (Don't Do This!)
-
-### ❌ Ignoring findings without investigation
-```bash
-./ubs .
-# ⚠️ 5 null safety violations found
-# BAD: "I'll commit anyway and ignore these warnings"
-```
-**Do instead:** Investigate each finding, fix real issues
-
-### ❌ Running full scans for small changes
-```bash
-# BAD: Edit 1 file → scan entire 500K line codebase (30 seconds)
-./ubs .
-```
-**Do instead:** `./ubs src/components/Button.tsx` (< 1 second)
-
-### ❌ Fixing symptoms, not root causes
-```bash
-# UBS: "Unguarded access: user.name"
-# BAD: if (user) { user.name }  // Still crashes if user.name is undefined!
-```
-**Do instead:** `user?.name` or `if (user?.name) { ... }`
-
----
-
-## 📈 Success Pattern (Full Example)
-
-```bash
-# 1. User requests feature
-User: "Add a function to fetch user settings"
-
-# 2. Agent generates code
-cat > src/api/settings.ts << 'EOF'
-export async function getUserSettings(userId) {
-  const user = await fetchUser(userId);
-  return user.profile.settings.theme;  // ❌ Unguarded chain
-}
-EOF
-
-# 3. Agent runs UBS before committing
-./ubs src/api/settings.ts
-# ⚠️ Null safety violation (1 error)
-#     src/api/settings.ts:3:10 – Unguarded property access: user.profile.settings.theme
-#     💡 Add guard: if (user?.profile?.settings?.theme) { ... }
-# Exit code: 1
-
-# 4. Agent fixes the issue
-cat > src/api/settings.ts << 'EOF'
-export async function getUserSettings(userId) {
-  const user = await fetchUser(userId);
-  if (!user?.profile?.settings?.theme) {
-    throw new Error('User settings not found');
-  }
-  return user.profile.settings.theme;  // ✅ Safe
-}
-EOF
-
-# 5. Agent verifies fix
-./ubs src/api/settings.ts
-# ✅ No issues found
-# Exit code: 0
-
-# 6. Agent commits with confidence
-git add src/api/settings.ts
-git commit -m "feat(api): Add getUserSettings with null safety"
-
-# Result: User receives production-ready code, zero runtime bugs
-```
-
-**Time cost:** +10 seconds
-**Value:** Prevents 4-8 hours debugging crashes
-
----
-
-## ⚡ Speed Patterns
-
-### Pattern 1: Incremental (FASTEST)
-```bash
-./ubs src/file1.ts src/file2.ts  # <1 second for 2-5 files
-```
-
-### Pattern 2: Language-Scoped
-```bash
-./ubs --only=js src/  # 3-5x faster in polyglot projects
-```
-
-### Pattern 3: Git-Integrated
-```bash
-./ubs $(git diff --name-only HEAD)  # Only changed files
-```
-
----
-
-## 🎓 Understanding Bug Categories
-
-**Critical (always fix):**
-- **Null safety** → `user.profile.name` without guards → Crash
-- **XSS/Injection** → `innerHTML = userInput` → Security breach
-- **Async/await** → `fetchData()` without await → Race conditions
-- **Memory leaks** → Event listeners without cleanup → Crashes
-
-**Important (fix in production):**
-- **Type narrowing** → Guards without returns → Logic bugs
-- **Division by zero** → `x / y` without checks → NaN
-- **Resource leaks** → Files not closed → Exhaustion
-
-**Contextual (use judgment):**
-- **TODO/FIXME** → Unfinished work → Tech debt
-- **Console logs** → Debug statements → Info leakage
-
----
-
-## 🧠 Key Insights for AI Agents
-
-1. **UBS ≠ Linter** → Targets critical bugs, not style
-2. **Exit code is binary** → 0 = ship it, >0 = fix it
-3. **Scope aggressively** → Only scan changed files
-4. **Suggestions are concrete** → UBS tells you the exact fix
-5. **False positives are rare** → If flagged, investigate thoroughly
-6. **Speed enables iteration** → Run after every change
-7. **Learn the patterns** → Avoid generating these bugs
-
----
-
-## 💡 Pro Tips
-
-- **First time in a project?** Run `./ubs .` to understand existing issues
-- **Working incrementally?** Use `./ubs $(git diff --name-only HEAD)`
-- **Pre-PR checklist?** Run `./ubs --ci --fail-on-warning .`
-- **Debugging crashes?** UBS often finds the exact line
-- **Large codebase?** Use `--only=<language>` to focus scans
-- **CI integration?** Use `--fail-on-warning` to block bad PRs
+**Anti-Patterns:**
+- ❌ Ignore findings → ✅ Investigate each
+- ❌ Full scan per edit → ✅ Scope to file
+- ❌ Fix symptom (`if (x) { x.y }`) → ✅ Root cause (`x?.y`)
 
 </details>
 
