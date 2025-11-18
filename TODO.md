@@ -25,8 +25,8 @@ All tasks reference Beads issue IDs so progress stays traceable. Update this lis
 - [ ] Ensure AGENTS.md references Beads issue IDs whenever handoffs occur.
 
 ## 5. Resource lifecycle fixtures (ultimate_bug_scanner-6ig)
-- [ ] Investigate `modules/ubs-python.sh` single-file runs (resource_lifecycle) reporting zero files/warnings.
-- [ ] Do the same for Go and Java fixtures (confirm detection logic).
-- [ ] Restore warnings so `--fail-on-warning` triggers and manifest passes.
+- [x] Investigate `modules/ubs-python.sh` single-file runs (resource_lifecycle) reporting zero files/warnings.
+- [x] Do the same for Go and Java fixtures (confirm detection logic).
+- [x] Restore warnings so `--fail-on-warning` triggers and manifest passes.
 
 _Last updated: 2025-11-16 22:58 UTC_

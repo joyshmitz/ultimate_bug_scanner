@@ -1083,19 +1083,19 @@ write_session_summary() {
   SESSION_SUMMARY_FILE="$summary"
   {
     printf "## Install Session – %s\n\n" "$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-    printf "- Installer version: %s\n" "$VERSION"
-    printf "- Install directory: %s\n" "$install_dir"
+    printf -- "- Installer version: %s\n" "$VERSION"
+    printf -- "- Install directory: %s\n" "$install_dir"
     if [ "${#ORIGINAL_ARGS[@]}" -gt 0 ]; then
-      printf "- Session args: %s\n" "${ORIGINAL_ARGS[*]}"
+      printf -- "- Session args: %s\n" "${ORIGINAL_ARGS[*]}"
     fi
     if [ -n "$SESSION_AGENT_SUMMARY" ]; then
-      printf "- Detected agents: %s\n" "$SESSION_AGENT_SUMMARY"
+      printf -- "- Detected agents: %s\n" "$SESSION_AGENT_SUMMARY"
     fi
-    printf "- Auto doctor: %s" "$status"
+    printf -- "- Auto doctor: %s" "$status"
     [ -n "$note" ] && printf " (%s)" "$note"
     printf "\n"
     if [ "${#SESSION_FACT_KEYS[@]}" -gt 0 ]; then
-      printf "- Tool readiness:\n"
+      printf -- "- Tool readiness:\n"
       for key in "${SESSION_FACT_KEYS[@]}"; do
         printf "  - %s: %s\n" "$key" "${SESSION_FACTS[$key]}"
       done

@@ -99,6 +99,13 @@ const zipCode = parseInt(userInput);  // 💥 "08" becomes 0 in old browsers (oc
 - Run `ubs doctor` at any time to audit your environment. It checks for curl/wget availability, writable cache directories, and per-language module integrity. Add `--fix` to redownload missing or corrupted modules proactively.
 - Scanner runs still respect `--update-modules`, but an invalid checksum now causes an immediate failure with remediation guidance rather than executing unverified code.
 
+### 🎛 Category Packs & Shareable Reports
+- `--category=resource-lifecycle` focuses the scanners on Python/Go/Java resource hygiene (context managers, defer symmetry, try-with-resources). UBS automatically narrows the language set to those with lifecycle packs enabled and suppresses unrelated categories.
+- `--comparison=<baseline.json>` diff the latest combined summary against a stored run. Deltas feed into console output, JSON, HTML, and SARIF automation metadata so CI can detect regressions.
+- `--report-json=<file>` writes an enriched summary (project, totals, git metadata, optional comparison block) that you can archive or share with teammates/CI.
+- `--html-report=<file>` emits a standalone HTML preview showing totals, trends vs. baseline, and per-language breakdowns—ideal for attaching to PRs or chat updates.
+- All shareable outputs inject GitHub permalinks when UBS is run inside a git repo with a GitHub remote. Text output automatically annotates `path:line` references, JSON gains `git.*` metadata, and merged SARIF runs now include `versionControlProvenance` plus `automationDetails` keyed by the comparison id.
+
 Ultimate Bug Scanner is like having a senior developer review every line of code **in under 5 seconds**; it's the perfect automated companion to your favorite coding agent:
 
 ```bash
@@ -395,6 +402,7 @@ ubs .
 - **TypeScript** – UBS shells out to `tsserver` (via the bundled helper) whenever Node.js + the `typescript` package are available. The installer surfaces a "Type narrowing readiness" diagnostic so you immediately know if tsserver-powered guards are running.
 - **Rust** – A Python helper inspects `if let Some/Ok` guard clauses and flags subsequent `.unwrap()`/`.expect()` calls outside of exiting blocks. Fixtures and manifest cases keep this regression-tested.
 - **Kotlin** – The Java module scans `.kt` sources for `if (value == null)` guards that merely log and keep running before hitting `value!!`, catching the same pitfall on JVM teams that mix Java + Kotlin.
+- **Swift** – Guard-`let` validation plus optional chaining/Objective‑C bridging heuristics catch cases where code logs and continues before force-unwrapping `value!`, protecting iOS/macOS pipelines that blend Swift + ObjC.
 
 Use `--skip-type-narrowing` (or `UBS_SKIP_TYPE_NARROWING=1`) when you want to bypass all of these guard analyzers—for example on air-gapped CI environments or when validating legacy projects one language at a time.
 
@@ -974,9 +982,13 @@ The installer will:
 - ✅ Optionally install `jq` (needed for JSON/SARIF merging across all language scanners)
 - ✅ Optionally install `typos` (smart spellchecker for docs and identifiers)
 - ✅ Optionally install `Node.js + typescript` (enables deep TypeScript type narrowing analysis)
+- ✅ Auto-run `ubs doctor` post-install and append a session summary to `~/.config/ubs/session.md`
+- ✅ Capture readiness facts (ripgrep/jq/typos/type narrowing) and store them for `ubs sessions --entries 1`
 - ✅ Set up git hooks (block commits with critical bugs)
 - ✅ Set up Claude Code hooks (scan on file save)
 - ✅ Add documentation to your AGENTS.md
+
+Need to revisit what the installer discovered later? Run `ubs sessions --entries 1` to view the most recent session log (or point teammates at the same summary).
 
 Need the “just make it work” button? Run the installer with `--easy-mode` to auto-install every dependency, accept all prompts, detect local coding agents, and wire their quality guardrails with zero extra questions:
 
@@ -1023,14 +1035,15 @@ curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scan
 |------|--------------|----------------|
 | `--dry-run` | Prints every install action (downloads, PATH edits, hook writes, cleanup) without touching disk. Dry runs still resolve config, detect agents, and show you exactly what *would* change. | Audit the installer, demo it to teammates, or validate CI steps without modifying a workstation. |
 | `--self-test` | Immediately runs `test-suite/install/run_tests.sh` after installation and exits non-zero if the smoke suite fails. | CI/CD jobs and verified setups can prove the installer still works end-to-end before trusting a release. |
-| `--skip-type-narrowing` | Skip the Node.js + TypeScript readiness probe during install/diagnose runs. | Useful for air-gapped hosts or environments that don't want tsserver hints. |
+| `--skip-type-narrowing` | Skip the Node.js + TypeScript readiness probe **and** the cross-language guard analyzers (JS/Rust/Kotlin/Swift). | Useful for air-gapped hosts or environments that want to stay in heuristic-only mode. |
 | `--skip-typos` | Skip the Typos spellchecker installation + diagnostics. | Handy when corp images already provide Typos or when you deliberately disable spellcheck automation. |
+| `--skip-doctor` | Skip the automatic `ubs doctor` run + session summary after install. | Use when CI already runs doctor separately or when you're iterating locally and want a faster finish. |
 
 > ⚠️ `--self-test` requires running `install.sh` from a working tree that contains `test-suite/install/run_tests.sh` (i.e., the repo root). Curl-piping the installer from GitHub can’t self-test because the harness isn’t present, so the flag will error out early instead of giving a false sense of safety.
 
 > ℹ️ After every install the script now double-checks `command -v ubs`. If another copy shadows the freshly written binary, you’ll get an explicit warning with both paths so you can fix PATH order before running scans.
 
-> 🧠 Type narrowing relies on Node.js plus the `typescript` npm package. The installer now checks for both, can optionally run `npm install -g typescript`, and surfaces readiness inside `install.sh --diagnose`. Use `--skip-type-narrowing` if you’re on an air-gapped host or plan to keep the heuristic-only mode.
+> 🧠 Type narrowing relies on Node.js plus the `typescript` npm package *and* the Python helpers that power the Rust/Kotlin/Swift checks. The installer now checks Node/TypeScript readiness, can optionally run `npm install -g typescript`, and surfaces the status inside `install.sh --diagnose`. Use `--skip-type-narrowing` if you’re on an air-gapped host or plan to keep the heuristic-only mode.
 
 **Common combos**
 
@@ -1306,6 +1319,7 @@ Critical issues found? ────┤ YES
 ./ubs --only=js,python src/               # Language filter (3-5x faster)
 ./ubs --ci --fail-on-warning .            # CI mode — before PR
 ./ubs --help                              # Full command reference
+./ubs sessions --entries 1                # Tail the latest install session log
 ```
 
 **Output Format:**

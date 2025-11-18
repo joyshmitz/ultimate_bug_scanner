@@ -1,13 +1,50 @@
 # Installer & Type Narrowing TODOs
 
-_Updated: 2025-11-17 22:55 UTC_
+_Updated: 2025-11-18 01:30 UTC_
 
 ## Issue Ownership
 - `ultimate_bug_scanner-46h` – Type narrowing fixtures + manifest (TS focus)
 - `ultimate_bug_scanner-dit` – Installer + CLI updates for type narrowing (skip flag, diagnostics)
 - `ultimate_bug_scanner-8d7` – Cross-language narrowing heuristics (Rust/Kotlin, AST-first)
+- `ultimate_bug_scanner-ir4` – Instant Confidence Onboarding (auto doctor + session insights)
+- `ultimate_bug_scanner-4se` – Type Narrowing Full Coverage (Swift/Kotlin/ObjC follow-ups)
+- `ultimate_bug_scanner-4sm` – Resource Lifecycle Packs (Go/Python/Java symmetry)
+- `ultimate_bug_scanner-1nr` – Shareable Reports (HTML diff, SARIF comparisons)
 
 ## Detailed Task List
+
+### 0. Growth / Differentiators Backlog (new beads)
+- [ ] **ultimate_bug_scanner-ir4** – “Instant Confidence Onboarding”  
+  - [x] Run `ubs doctor` automatically after install (opt-out flag).  
+  - [x] Generate `~/.config/ubs/session.md` summary of install + doctor output.  
+  - [ ] Enrich session summary with readiness facts (typos/ripgrep/t narrowing).  
+  - [ ] Provide CLI command (`ubs sessions`) to tail/format summaries.  
+  - [ ] Surface next-action prompts if doctor finds missing deps.
+- [ ] **ultimate_bug_scanner-4se** – “Type Narrowing Full Coverage”  
+  - [x] Kotlin smart-cast & Elvis heuristics (null-safe + guard reasoning).  
+  - [x] Swift guard-let helper + Java wiring.  
+  - [ ] Extend Swift coverage (optional chaining, Objective-C bridging misuse).  
+  - [ ] Add fixtures + manifest rows for Kotlin coroutine/Swift optional cases.  
+  - [ ] Doc updates for Swift/Kotlin guard rules, CLI flag references.
+- [x] **ultimate_bug_scanner-4sm** – “Resource Lifecycle Packs”  
+  - [x] Python: context managers / file/socket close symmetry.  
+  - [x] Go: `defer` pairing for files, db handles, mutexes.  
+  - [x] Java: try-with-resources coverage (auto-closeable).  
+  - [x] Publish pack toggle (`--category resource-lifecycle`).  
+  - [x] Manifest coverage per language.
+- [x] **ultimate_bug_scanner-1nr** – “Shareable Reports”  
+  - [x] HTML report preview (diff vs previous run).  
+  - [x] SARIF enhancements with run comparison metadata.  
+  - [x] Embed GitHub file:line permalinks in JSON/text output.  
+  - [x] CLI flag for “comparison mode” (baseline file).
+- [ ] **ultimate_bug_scanner-k2r** – “Developer Happiness Set”  
+  - [ ] `ubs configure` wizard for `.ubsignore`, default languages, env settings.  
+  - [ ] Optional “fix suggestion” snippets per category (text + JSON).  
+  - [ ] Alias helper to pipe findings into AI prompts.
+- [ ] **ultimate_bug_scanner-m5n** – “Visibility & Trust”  
+  - [ ] Blog-series pipeline (“UBS Hall of Bugs”) with anonymized story template.  
+  - [ ] Publish metrics dashboard (installs, average scan time, top findings).  
+  - [ ] README badge hooking into metric snapshot.
 
 ### 1. TypeScript Fixtures & Manifest (46h)
 - [x] Re-read new TS fixtures (buggy/clean) for correctness + clarity (verified guard/exit semantics on 2025-11-17).
@@ -37,18 +74,35 @@ _Updated: 2025-11-17 22:55 UTC_
 
 ### 5. Installer Reliability + UX
 - [x] Review locking/tempfile helpers (self-test releases locks; harness ensures no stray `/tmp/ubs-install.lock`).
-- [ ] Ensure cleanup only deletes tracked temp paths; add coverage in tests.
-- [ ] Polish log formatting + section headings (consistent emojis/colors?).
-- [ ] Improve `install.sh --help` text (options grouped, new flags described).
+- [x] Ensure cleanup only deletes tracked temp paths; add coverage in tests. *(WORKDIR override + safe removal guard + harness asserts workdir cleanup.)*
+- [x] Polish log formatting + section headings (consistent emojis/colors?). *(log_section now prints framed titles.)*
+- [x] Improve `install.sh --help` text (options grouped, new flags described).
 - [x] Add PATH shadow warning and summary reminder (post-install `warn_if_stale_binary` now runs; consider further summary polish).
 
 ### 6. Test Coverage & Tooling
 - [x] Fix `test-suite/install/run_tests.sh` to accommodate new diagnostics + Typos (captures exit code + tolerates readiness probe).
 - [x] Run entire install test suite locally (CI parity) and capture output (`bash test-suite/install/run_tests.sh`).
 - [x] Execute UBS manifest or targeted tests for new fixtures (JS/Rust type narrowing cases run via `uv`).
-- [x] Run `ubs .` (or scoped) after code changes per AGENTS.md. *(./ubs --ci . run 2025-11-17; warnings limited to known helper sync fs usage.)*
+- [x] Run `ubs .` (or scoped) after code changes per AGENTS.md. *(./ubs --ci . run 2025-11-18; warnings 0 after async helper + JSON heuristics refinements.)*
 
 ### 7. Fresh-Eyes Review & Follow-ups
 - [x] Re-read modified installer + module code for obvious bugs/regressions.
 - [ ] File new beads for any follow-up work discovered mid-review.
 - [ ] Summarize findings + scanner results in final handoff.
+
+### 8. Instant Confidence Onboarding (ir4)
+- [ ] Capture readiness facts (ripgrep/jq/typos/type narrowing) during installer run and feed into session summary bullet list.
+- [ ] Include last `ubs doctor` exit status + pointer to session log path in completion banner.
+- [ ] Implement `ubs sessions` (or `ubs session-log`) subcommand:
+  - [ ] Show tail of `~/.config/ubs/session.md` with optional `--entries`/`--raw` flags.
+  - [ ] Respect `NO_COLOR` and provide helpful error if log absent.
+- [ ] Installer: mention new CLI command in quickstart text + README.
+- [ ] Test: extend `test-suite/install/run_tests.sh` to stub HOME, run installer with `--skip-doctor` false, then assert `ubs sessions --entries 1` prints latest block without error (maybe by invoking CLI script with env pointing to temp config).
+
+### 9. Type Narrowing Full Coverage (4se)
+- [ ] Kotlin helper: add coroutine context awareness (e.g., guard `if (job != null)` before `job!!`).
+- [ ] Swift helper: detect optional chaining misuse (guard `if foo?.bar != nil` then later `foo!.bar`), and bridging cases.
+- [ ] Add fixtures under `test-suite/kotlin/type_narrowing/` and `test-suite/swift/type_narrowing/` for new heuristics; update manifest counts accordingly.
+- [ ] README/test-suite docs: new Swift/Kotlin coverage table row plus CLI flag mention.
+- [ ] UBS CLI help text: mention cross-language coverage + `--skip-type-narrowing` effects (ensuring help section includes languages).
+- [ ] Tests: run targeted manifest cases + `test-suite/run_all.sh` to verify metrics.
