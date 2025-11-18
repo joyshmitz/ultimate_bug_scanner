@@ -130,8 +130,8 @@ _Updated: 2025-11-18 01:30 UTC_
 - [x] After changes, run a fresh-eyes pass on installer + Go/Python modules before scans/tests.
 
 ### 14. JDBC Lifecycle Follow-ups (java-resource expansion)
-- [ ] Extend ast-grep coverage to Statements/PreparedStatements (new `java.resource.statement-no-close` rule) + metadata entries.
-- [ ] Update Java fixtures (buggy + clean) to exercise Statement, PreparedStatement, and ResultSet leaks vs. guarded patterns.
-- [ ] Expand manifest `java-resource-lifecycle` expectations to assert on new summary strings.
-- [ ] Refresh README resource-lifecycle bullet to mention Statement/PreparedStatement coverage.
-- [ ] Re-run Java manifest + full `test-suite/run_all.sh` + `./ubs --ci .`; document outcomes.
+- [x] Extend coverage to Statements/PreparedStatements (helper-powered `Statement/PreparedStatement not closed` + metadata entries replacing the planned ast-grep rule for now).
+- [x] Update Java fixtures (buggy + clean) to exercise Statement, PreparedStatement, and ResultSet leaks vs. guarded patterns.
+- [x] Expand manifest `java-resource-lifecycle` expectations to assert on new summary strings.
+- [x] Refresh README resource-lifecycle bullet to mention Statement/PreparedStatement coverage (already documents new helper block).
+- [x] Re-run Java manifest + full `test-suite/run_all.sh` + `./ubs --ci .`; document outcomes.
