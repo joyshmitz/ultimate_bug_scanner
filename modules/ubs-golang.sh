@@ -1444,14 +1444,14 @@ if [ "$rand_count" -gt 0 ]; then print_finding "info" "$rand_count" "math/rand p
 print_subheader "TLS InsecureSkipVerify=true"
 count=$([[ "$HAS_AST_GREP" -eq 1 && -f "$AST_JSON" ]] && ast_count "go.tls-insecure-skip" || echo 0)
 if [ "$count" -eq 0 ] && command -v rg >/dev/null 2>&1; then
-  count=$(rg --no-config --no-messages -n "InsecureSkipVerify:[[:space:]]*true" "$PROJECT_DIR" 2>/dev/null | wc_num)
+  count=$(rg --no-config --no-messages -g '*.go' -n "InsecureSkipVerify:[[:space:]]*true" "$PROJECT_DIR" 2>/dev/null | wc_num)
 fi
 if [ "$count" -gt 0 ]; then print_finding "warning" "$count" "InsecureSkipVerify enabled"; fi
 
 print_subheader "exec sh -c (command injection risk)"
 count=$([[ "$HAS_AST_GREP" -eq 1 && -f "$AST_JSON" ]] && ast_count "go.exec-sh-c" || echo 0)
 if [ "$count" -eq 0 ]; then
-  count=$(rg --no-config --no-messages -n 'exec\.Command(Context)?\(\s*"(sh|bash)"\s*,\s*"-?c"' "$PROJECT_DIR" 2>/dev/null | wc -l | awk '{print $1+0}')
+  count=$(rg --no-config --no-messages -g '*.go' -n 'exec\.Command(Context)?\(\s*"(sh|bash)"\s*,\s*"-?c"' "$PROJECT_DIR" 2>/dev/null | wc -l | awk '{print $1+0}')
 fi
 if [ "$count" -gt 0 ]; then print_finding "critical" "$count" "exec.Command(*, \"sh\", \"-c\", ...) detected"; fi
 

@@ -2316,7 +2316,7 @@ print_category "Detects: open without with, missing encoding, rmtree(ignore_erro
 
 print_subheader "open(...) without context manager"
 open_calls=$("${GREP_RN[@]}" -e "open\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
-with_calls=$("${GREP_RN[@]}" -e "with[[:space:]]+open\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+with_calls=$("${GREP_RN[@]}" -e "with[[:space:]]+[^:]*open\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
 if [ "$open_calls" -gt 0 ] && [ "$with_calls" -lt "$open_calls" ]; then
   diff=$((open_calls - with_calls))
   print_finding "warning" "$diff" "open() calls missing 'with'" "Wrap file handles in context managers or close them explicitly"
