@@ -18,13 +18,13 @@ MODULE_PATH_TEMPLATE="$REPO_RAW/modules/ubs-%s.sh"
 
 # Known-good module digests (sha256) for supply-chain verification.
 declare -A MODULE_CHECKSUMS=(
-  [js]='980fbb9ea100871054a6c4e632a511ff9946a28a94966b7b1f2a23decda8c238'
-  [python]='765be02cf7e1014a1512cc0f2ec5259bbbdaa77261c0c8cd40162519f3a54c75'
   [cpp]='f62eb79da568a76c9df4922a0ae919e4dfc000c90de811c4f60ceb62dcf08d4c'
-  [rust]='2ffbb4f232fcf77b7c5a5de236994ab933a12c0d65fe3055ccdb54dd859767cb'
   [golang]='ba1d526eb983a9d459dfa85b94f0cd6c9ca731aa5b3590c652d08c166eeb7c8d'
   [java]='7edfab872f131b3edbf568069477d4f1697de80258b1a3cc24e65b3ea9355bcc'
+  [js]='980fbb9ea100871054a6c4e632a511ff9946a28a94966b7b1f2a23decda8c238'
+  [python]='653c2ff520140ae3eda1d512766b9715ee83f03fa513c608f83a571e5a0a377a'
   [ruby]='fcb1682c3df83b1fa6b79f2b93c732e0590c40a15904ec5bd1e022791b8d6899'
+  [rust]='2ffbb4f232fcf77b7c5a5de236994ab933a12c0d65fe3055ccdb54dd859767cb'
   [swift]='ded6bf0512d8a26f94e96f47b06abbd13fe3456b6190191841b305f96aa3d6e3'
 )
 
@@ -38,6 +38,7 @@ else
 fi
 CHECK="✓"; WARN="⚠"; INFO="ℹ"; X="✗"
 say(){ echo -e "$*"; }
+say_err(){ echo -e "$*" >&2; }
 
 print_with_permalinks(){
   local file="$1"
@@ -88,6 +89,7 @@ FORMAT="text"              # text|json|sarif
 CI_MODE=0
 FAIL_ON_WARNING=0
 VERBOSE=0
+QUIET=0
 ONLY_LANGS=""              # csv: js,python,cpp,rust
 EXCLUDE_LANGS=""           # csv
 IGNORE_FILE=""
@@ -145,6 +147,7 @@ Options:
   --jobs=N                Parallelism hint (passed to children if supported)
   --ignore-file=PATH      Read additional ignore globs (default: PROJECT/.ubsignore if present)
   --skip-type-narrowing   Skip JS/Rust/Kotlin/Swift type narrowing checks (falls back to basic heuristics)
+  --no-auto-update        Disable automatic self-update
   -h, --help              Show this help
 
 Examples:
@@ -277,6 +280,7 @@ else
       --ci) CI_MODE=1; shift;;
       --fail-on-warning) FAIL_ON_WARNING=1; shift;;
       -v|--verbose) VERBOSE=1; shift;;
+      -q|--quiet) QUIET=1; shift;;
       --only=*) ONLY_LANGS="${1#*=}"; shift;;
       --exclude=*) EXCLUDE_LANGS="${1#*=}"; shift;;
       --category=*) CATEGORY_FILTER="${1#*=}"; shift;;
@@ -303,6 +307,7 @@ else
       --update-modules) UPDATE_MODULES=1; shift;;
       --jobs=*) JOBS="${1#*=}"; shift;;
       --skip-type-narrowing) SKIP_TYPE_NARROWING=1; shift;;
+      --no-auto-update) export UBS_NO_AUTO_UPDATE=1; shift;;
       -h|--help) usage; exit 0;;
       *)
         if [[ "$PROJECT_DIR" == "." ]]; then PROJECT_DIR="$1"; else usage; exit 2; fi
@@ -812,6 +817,86 @@ ensure_module(){
   return 0
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Self-update logic
+# ─────────────────────────────────────────────────────────────────────────────
+check_and_update_self(){
+  # Skip if explicitly disabled
+  if [[ "${UBS_NO_AUTO_UPDATE:-0}" -eq 1 || "${CI_MODE:-0}" -eq 1 ]]; then return 0; fi
+  
+  # Only update if we're running the installed binary (not a local repo script)
+  # Heuristic: if the script dir contains .git, we're likely in a dev environment
+  if [[ -d "$(script_dir)/.git" ]]; then return 0; fi
+
+  # Or if we are not writable
+  if [[ ! -w "$0" ]]; then return 0; fi
+
+  local self_path="$0"
+  local remote_url="$REPO_RAW/ubs"
+  local last_check_file="${XDG_CACHE_HOME:-$HOME/.cache}/ubs/last_update_check"
+  ensure_dir "$(dirname "$last_check_file")"
+
+  # Check at most once every 24 hours
+  if [[ -f "$last_check_file" ]]; then
+    local last_check
+    last_check=$(cat "$last_check_file" 2>/dev/null || echo 0)
+    local now
+    now=$(date +%s)
+    if (( now - last_check < 86400 )); then
+      return 0
+    fi
+  fi
+
+  if [[ "${QUIET:-0}" -eq 0 ]]; then
+    say_err "${DIM}Checking for updates...${RESET}"
+  fi
+
+  # Fetch remote version string or hash from the script itself
+  # We look for UBS_VERSION="X.Y.Z"
+  local remote_content
+  if need_cmd curl; then
+    remote_content=$(curl -fsSL "$remote_url") || return 0
+  elif need_cmd wget; then
+    remote_content=$(wget -qO- "$remote_url") || return 0
+  else
+    return 0
+  fi
+
+  local remote_version
+  remote_version=$(echo "$remote_content" | grep -oE 'UBS_VERSION="[0-9.]+"' | head -n1 | cut -d'"' -f2)
+  
+  if [[ -z "$remote_version" ]]; then return 0; fi
+
+  if [[ "$remote_version" != "$UBS_VERSION" ]]; then
+    if [[ "${QUIET:-0}" -eq 0 ]]; then
+      say_err "${BLUE}${INFO}${RESET} Updating ubs from ${UBS_VERSION} to ${remote_version}..."
+    fi
+    
+    # Write new content to temp file
+    local tmp_self
+    tmp_self=$(mktemp)
+    echo "$remote_content" > "$tmp_self"
+    chmod +x "$tmp_self"
+    
+    # Move over current script
+    if mv "$tmp_self" "$self_path"; then
+      if [[ "${QUIET:-0}" -eq 0 ]]; then
+        say_err "${GREEN}${CHECK}${RESET} Updated successfully."
+      fi
+      # Update check timestamp
+      date +%s > "$last_check_file"
+      # Re-exec self to run the new version
+      exec "$self_path" "$@"
+    else
+      rm -f "$tmp_self"
+      say_err "${YELLOW}${WARN}${RESET} Failed to update ubs binary."
+    fi
+  else
+    # Update check timestamp even if no update found
+    date +%s > "$last_check_file"
+  fi
+}
+
 finalize_module_dir
 resolve_git_metadata
 
@@ -819,6 +904,9 @@ if [[ "$MODE" == "doctor" ]]; then
   run_doctor "$DOCTOR_FIX"
   exit $?
 fi
+
+# Run auto-update before main logic
+check_and_update_self "$@"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Execution / aggregation
@@ -868,10 +956,16 @@ run_lang(){
   local status_file="$TMPDIR_RUN/$lang.status"
   local metrics_dir="$TMPDIR_RUN/$lang.metrics"
   local module_status=0
+  local start_ts=$SECONDS
+
+  if [[ "${QUIET:-0}" -eq 0 ]]; then
+    say_err "${DIM}Scanning $lang...${RESET}"
+  fi
 
   local args=("--ci")
   [[ "$FAIL_ON_WARNING" -eq 1 ]] && args+=("--fail-on-warning")
   [[ "$VERBOSE" -eq 1 ]] && args+=('-v')
+  [[ "${QUIET:-0}" -eq 1 ]] && args+=('-q')
   [[ "$JOBS" -gt 0 ]] && args+=("--jobs=$JOBS")
   [[ -n "$GLOBAL_EXCLUDE_PATTERNS" ]] && args+=("--exclude=$GLOBAL_EXCLUDE_PATTERNS")
   args+=("$PROJECT_DIR")
@@ -932,7 +1026,13 @@ run_lang(){
       ;;
   esac
 
+  local duration=$((SECONDS - start_ts))
+  if [[ "${QUIET:-0}" -eq 0 ]]; then
+    say_err "${DIM}Finished $lang (${duration}s)${RESET}"
+  fi
+
   echo "$module_status" >"$status_file"
+  return "$module_status"
 }
 
 # Parse legacy text logs → JSON summary (robust to colors)
@@ -1077,7 +1177,7 @@ cat <<'BANNER'
 ║  ███████║  ██████╗  ██║  ██║██║ ╚████║██║ ╚████║███████╗██║  ██║             ║
 ║  ╚══════╝  ╚═════╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝                  ║
 ║                                                                              ║
-║     JS / TS • PYTHON • C / C++ • RUST • GO • JAVA • RUBY                     ║
+║     JS / TS • PYTHON • C / C++ • RUST • GO • JAVA • RUBY • SWIFT             ║
 ║                    UBS: ULTIMATE BUG SCANNER • SARIF FUSION ☄️               ║
 ║                                                                              ║
 ║                                                                              ║
