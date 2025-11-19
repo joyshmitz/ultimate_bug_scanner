@@ -82,6 +82,12 @@ async function analyzeFileWithTs(filePath) {
       if (ts.isIdentifier(expression.operand)) {
         return expression.operand;
       }
+      // Handle !x.prop (optional chain guard)
+      if (ts.isPropertyAccessExpression(expression.operand) || ts.isElementAccessExpression(expression.operand)) {
+        // For now, we only track simple identifiers, but we could expand this.
+        // Returning null avoids false positives on complex expressions.
+        return null;
+      }
     }
     return null;
   }
@@ -151,6 +157,16 @@ async function analyzeFileWithTs(filePath) {
       statements.forEach((stmt, idx) => {
         if (ts.isIfStatement(stmt)) {
           const guarded = extractGuardedIdentifier(stmt.expression);
+          // If we have a guard, we expect the THEN block to EXIT if the guard was NEGATIVE (e.g. if (!x) return).
+          // But extractGuardedIdentifier returns the identifier for both !x and x == null.
+          // Wait, if the guard is `if (!x)`, then `x` is falsy in the THEN block.
+          // So if the THEN block DOES NOT exit, then `x` remains falsy in the rest of the scope?
+          // No, if `if (!x) return`, then `x` is truthy afterwards.
+          // The logic below checks: if guarded && !else && !blockHasExit(then) -> warn if used.
+          // This implies the guard was "if (x is bad) { log but don't exit }".
+          // So if `if (!x) { log } x.foo()`, x might be null.
+          // This logic seems correct for "guard clauses that fail to guard".
+          
           if (guarded && !stmt.elseStatement && !blockHasExit(stmt.thenStatement)) {
             const usage = findUsageAfter(statements, idx, guarded);
             if (usage) {
@@ -176,7 +192,7 @@ async function analyzeFileFallback(filePath) {
   const results = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const guard = line.match(/if\s*\(\s*!([A-Za-z_$][\w$]*)\s*\)/) || line.match(/if\s*\(\s*([A-Za-z_$][\w$]*)\s*===\s*(?:null|undefined)\s*\)/);
+    const guard = line.match(/if\s*\(\s*!([A-Za-z_$][\w$]*)\b\s*\)/) || line.match(/if\s*\(\s*([A-Za-z_$][\w$]*)\b\s*===\s*(?:null|undefined)\b\s*\)/);
     if (!guard) continue;
     const name = guard[1];
     let exits = false;
@@ -187,15 +203,21 @@ async function analyzeFileFallback(filePath) {
       }
     }
     if (exits) continue;
+    
+    // Regex to find usage: word boundary + name + (dot or bracket)
+    // e.g. name.prop or name['prop']
+    const usageRegex = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\.|\\s*\\[)`);
+    const assignmentRegex = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*=`);
+
     for (let j = i + 1; j < Math.min(lines.length, i + 25); j++) {
-      if (lines[j].includes(name) && /[.([]/.test(lines[j][lines[j].indexOf(name) + name.length] || '')) {
+      if (usageRegex.test(lines[j])) {
         results.push({
           location: `${filePath}:${j + 1}:1`,
           message: `Value '${name}' checked earlier but used without return (text heuristic)`
         });
         break;
       }
-      if (lines[j].includes(`${name} =`)) break;
+      if (assignmentRegex.test(lines[j])) break;
     }
   }
   return results;
