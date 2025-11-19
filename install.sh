@@ -2790,36 +2790,54 @@ add_to_agents_md() {
   fi
 
   cat >> "$agents_file" << 'AGENTS_EOF'
-
-## Code Quality: Ultimate Bug Scanner
-
-### When to Use
-
-Run the bug scanner **before committing** any JavaScript/TypeScript, Python, C/C++, Rust, Go, Java, or Ruby code changes:
-
 ```bash
-ubs .
-````
+## UBS Quick Reference for AI Agents
 
-### Requirements
+UBS stands for "Ultimate Bug Scanner": **The AI Coding Agent's Secret Weapon: Flagging Likely Bugs for Fixing Early On**
 
-* Run automatically after implementing features
-* Run before marking work as complete
-* Fix all CRITICAL issues before committing
-* Consider fixing WARNING issues
+**Install:** `curl -sSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/install.sh | bash`
 
-### Integration
+**Golden Rule:** `ubs <changed-files>` before every commit. Exit 0 = safe. Exit >0 = fix & re-run.
 
-The scanner may be configured to run automatically via:
+**Commands:**
+```bash
+ubs file.ts file2.py                    # Specific files (< 1s) — USE THIS
+ubs $(git diff --name-only --cached)    # Staged files — before commit
+ubs --only=js,python src/               # Language filter (3-5x faster)
+ubs --ci --fail-on-warning .            # CI mode — before PR
+ubs --help                              # Full command reference
+ubs sessions --entries 1                # Tail the latest install session log
+ubs .                                   # Whole project (ignores things like .venv and node_modules automatically)
+```
 
-* Claude Code hooks (runs on file save)
-* Git pre-commit hooks (runs before commit)
+**Output Format:**
+```
+⚠️  Category (N errors)
+    file.ts:42:5 – Issue description
+    💡 Suggested fix
+Exit code: 1
+```
+Parse: `file:line:col` → location | 💡 → how to fix | Exit 0/1 → pass/fail
 
-If hooks are configured, the scanner runs automatically and you don't need to invoke it manually.
+**Fix Workflow:**
+1. Read finding → category + fix suggestion
+2. Navigate `file:line:col` → view context
+3. Verify real issue (not false positive)
+4. Fix root cause (not symptom)
+5. Re-run `ubs <file>` → exit 0
+6. Commit
 
-### More Information
+**Speed Critical:** Scope to changed files. `ubs src/file.ts` (< 1s) vs `ubs .` (30s). Never full scan for small edits.
 
-See the [Ultimate Bug Scanner repository](https://github.com/Dicklesworthstone/ultimate_bug_scanner) for complete documentation.
+**Bug Severity:**
+- **Critical** (always fix): Null safety, XSS/injection, async/await, memory leaks
+- **Important** (production): Type narrowing, division-by-zero, resource leaks
+- **Contextual** (judgment): TODO/FIXME, console logs
+
+**Anti-Patterns:**
+- ❌ Ignore findings → ✅ Investigate each
+- ❌ Full scan per edit → ✅ Scope to file
+- ❌ Fix symptom (`if (x) { x.y }`) → ✅ Root cause (`x?.y`)
 AGENTS_EOF
 
 success "Added section to AGENTS.md"
