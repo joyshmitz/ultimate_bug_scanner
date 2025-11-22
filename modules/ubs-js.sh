@@ -647,7 +647,7 @@ run_async_error_checks() {
 run_hooks_dependency_checks() {
   print_subheader "React hooks dependency analysis"
   if [[ "$HAS_AST_GREP" -ne 1 ]]; then
-    print_finding "info" 0 "ast-grep not available" "Install ast-grep to analyze React hook dependencies"
+    print_finding "warning" 1 "React hook dependencies unchecked" "ast-grep unavailable; review useEffect/useCallback dependencies manually"
     return
   fi
   local rule_dir tmp_json
@@ -715,7 +715,16 @@ YAML
   rm -rf "$rule_dir"
   if ! [[ -s "$tmp_json" ]]; then
     rm -f "$tmp_json"
-    print_finding "good" "Hooks dependency arrays look accurate"
+    # Fallback heuristic: flag empty dependency arrays to avoid silent misses in CI
+    local empty_deps use_cb
+    empty_deps=$("${GREP_RN[@]}" -e "useEffect\\s*\\([^,]*,\\s*\\[\\s*\\]\\s*\\)" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+    use_cb=$("${GREP_RN[@]}" -e "useCallback\\s*\\([^,]*,\\s*\\[\\s*\\]\\s*\\)" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+    local total=$((empty_deps + use_cb))
+    if [ "$total" -gt 0 ]; then
+      print_finding "warning" "$total" "React hooks dependency array appears incomplete" "Detected hook(s) with empty dependency arrays; ensure props/state are listed"
+    else
+      print_finding "good" "Hooks dependency arrays look accurate"
+    fi
     return
   fi
   local printed=0
