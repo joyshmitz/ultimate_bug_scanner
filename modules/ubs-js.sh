@@ -608,6 +608,7 @@ run_async_error_checks() {
     ASYNC_ERROR_SEVERITY[js.async.then-no-catch]='warning'
     ASYNC_ERROR_SEVERITY[js.async.promiseall-no-try]='warning'
   fi
+  local warn_before=$WARNING_COUNT
   if ! emit_ast_rule_group ASYNC_ERROR_RULE_IDS ASYNC_ERROR_SEVERITY ASYNC_ERROR_SUMMARY ASYNC_ERROR_REMEDIATION \
     "All async operations appear protected" "Async rule checks"; then
     if [[ "$FAIL_ON_WARNING" -eq 0 ]]; then
@@ -625,6 +626,20 @@ run_async_error_checks() {
     promise_all_count=$("${GREP_RN[@]}" -e "Promise\.all\s*\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
     if [ "$promise_all_count" -gt 0 ]; then
       print_finding "warning" "$promise_all_count" "Promise.all without visible try/catch" "Wrap Promise.all in try/catch to handle aggregate failures"
+    fi
+  else
+    # ast-grep can occasionally under-report in constrained CI runners; double-check with a lightweight grep heuristic
+    if [[ "$FAIL_ON_WARNING" -eq 1 && "$WARNING_COUNT" -eq "$warn_before" ]]; then
+      local then_count promise_all_count
+      then_count=$("${GREP_RN[@]}" -e "\.then\s*\(" "$PROJECT_DIR" 2>/dev/null | \
+        (grep -v "\.catch" || true) | (grep -v "\.finally" || true) | count_lines)
+      if [ "$then_count" -gt 0 ]; then
+        print_finding "warning" "$then_count" "Promise.then chain missing .catch()" "Chain .catch() (or .finally()) to surface rejections"
+      fi
+      promise_all_count=$("${GREP_RN[@]}" -e "Promise\.all\s*\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+      if [ "$promise_all_count" -gt 0 ]; then
+        print_finding "warning" "$promise_all_count" "Promise.all without visible try/catch" "Wrap Promise.all in try/catch to handle aggregate failures"
+      fi
     fi
   fi
 }
