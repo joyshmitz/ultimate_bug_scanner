@@ -670,10 +670,10 @@ run_async_error_checks() {
     fi
     local get_count then_count
     # Check for .get() calls which may block without proper try/catch
-    get_count=$("${GREP_RN[@]}" -e '\.get\s*\(\s*\)' "$PROJECT_DIR" 2>/dev/null | count_lines)
+    get_count=$("${GREP_RN[@]}" -e '\.get\s*\(\s*\)' "$PROJECT_DIR" 2>/dev/null | count_lines || echo 0)
     # Check for .then* calls without .exceptionally()
     then_count=$("${GREP_RN[@]}" -e '\.(thenApply|thenCompose|thenAccept|thenRun)\s*\(' "$PROJECT_DIR" 2>/dev/null | \
-      (grep -v 'exceptionally' || true) | count_lines)
+      (grep -v 'exceptionally' || true) | count_lines || echo 0)
     if [ "$get_count" -gt 0 ]; then
       print_finding "warning" "$get_count" "CompletableFuture.get() calls" "Wrap .get() calls in try/catch or use CompletableFuture chaining"
     fi
