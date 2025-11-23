@@ -2762,7 +2762,8 @@ print_category "Detects: var usage, global pollution, shadowing" \
 
 print_subheader "var declarations (use let/const)"
 if [ "$HAS_AST_GREP" -eq 1 ]; then
-  count=$(ast_search 'var $X = $$' || echo 0)
+  # Match var with or without initializer
+  count=$(ast_search 'var $X' || echo 0)
 else
   count=$("${GREP_RN[@]}" -e "^[[:space:]]*var[[:space:]]+[A-Za-z_$][A-Za-z0-9_$]*" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
 fi
