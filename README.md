@@ -12,7 +12,7 @@
 ```bash
 # One command to catch 1000+ bug patterns (always master, cache-busted)
 curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/master/install.sh?$(date +%s)" \
-  | bash -s -- --easy-mode
+  | bash -s --
 ```
 
 </div>
