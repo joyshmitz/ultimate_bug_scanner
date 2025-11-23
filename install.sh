@@ -1207,7 +1207,7 @@ verify_installation() {
     warn "   Type narrowing: TypeScript package missing (run 'npm install -g typescript' or add devDependency)"
   fi
 
-  # Test 4: Quick smoke test
+  # Test 4: Quick smoke test (must fail with detected bugs)
   echo ""
   log "Running smoke test..."
   local test_file
@@ -1219,10 +1219,14 @@ const x = null;
 x.foo();
 SMOKE
 
-  if [ "$had_ubs" -eq 1 ] && safe_timeout 10 ubs "$test_file" --ci 2>&1 | grep -E -q "eval|null"; then
-    success "Smoke test PASSED - scanner detects bugs correctly"
+  if [ "$had_ubs" -eq 1 ]; then
+    if safe_timeout 10 ubs "$test_file" --only=js --fail-on-warning --ci >/dev/null 2>&1; then
+      warn "Smoke test FAILED - scanner did not flag known bugs (exit 0)"
+    else
+      success "Smoke test PASSED - scanner detects bugs (non-zero exit)"
+    fi
   else
-    warn "Smoke test inconclusive - scanner may not be fully functional"
+    warn "Smoke test skipped - ubs command unavailable"
   fi
 
   # Test 5: Module cache directory
