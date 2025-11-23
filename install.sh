@@ -2362,18 +2362,12 @@ install_scanner() {
     fi
   else
     log "Downloading from GitHub..."
-    # Download from master branch by default for latest code
-    local download_url="${REPO_URL}/${SCRIPT_NAME}"
-
-    # Only fetch checksums if using release artifacts
-    if [[ "${UBS_USE_RELEASE:-0}" == "1" ]]; then
-      download_url="${ARTIFACT_BASE}/${SCRIPT_NAME}"
-      fetch_checksum_bundle
-      downloaded_from_release=1
-    fi
+    fetch_checksum_bundle
+    local download_url="${ARTIFACT_BASE}/${SCRIPT_NAME}"
 
     if download_to_file "$download_url" "$temp_path"; then
       log "Downloaded successfully"
+      downloaded_from_release=1
     else
       error "Download failed. Check $download_err"
       rm -f "$temp_path"
