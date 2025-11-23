@@ -2888,8 +2888,7 @@ if [ "$global_pollution_count" -gt 0 ] && [[ -n "$global_pollution_samples" ]]; 
 fi
 
 print_subheader "Variable shadowing"
-count=$(ast_search 'let $VAR = $$; $$ { let $VAR = $$ }' || \
-  ( "${GREP_RN[@]}" -e "\b(let|const|var)[[:space:]]+[A-Za-z_]" "$PROJECT_DIR" 2>/dev/null || true ) | sort -t: -k3 | uniq -d -f2 | wc -l | awk '{print $1+0}')
+count=$(ast_search 'let $VAR = $$; $$ { let $VAR = $$ }' || echo 0)
 if [ "$count" -gt 3 ]; then
   print_finding "warning" "$count" "Potential variable shadowing" "Inner scope redefines outer variable"
 fi
