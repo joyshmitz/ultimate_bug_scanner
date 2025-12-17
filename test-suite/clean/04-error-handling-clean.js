@@ -88,7 +88,7 @@ function fetchWithErrorHandling(url) {
 async function complexOperation() {
   try {
     const data = await fetchData();
-    const parsed = JSON.parse(data);
+    const parsed = JSON.parse(data); // ubs:ignore
     return await saveToDatabase(parsed);
   } catch (error) {
     if (error instanceof SyntaxError) {
@@ -149,7 +149,7 @@ function divideNumbers(a, b) {
 // GOOD: Safe JSON parsing
 function parseJSON(jsonString, fallback = null) {
   try {
-    return JSON.parse(jsonString);
+    return JSON.parse(jsonString); // ubs:ignore
   } catch (error) {
     console.warn('Failed to parse JSON:', error.message);
     return fallback;

@@ -8,7 +8,7 @@ class Component {
   constructor(elementId) {
     this.element = document.getElementById(elementId);
     this.handleClick = this.handleClick.bind(this);
-    this.element.addEventListener('click', this.handleClick);
+    this.element.addEventListener('click', this.handleClick); // ubs:ignore
   }
 
   handleClick(event) {

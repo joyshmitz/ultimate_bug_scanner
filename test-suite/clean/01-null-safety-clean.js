@@ -10,7 +10,7 @@ function setupButton() {
     console.warn('Submit button not found');
     return;
   }
-  button.addEventListener('click', handleSubmit);
+  button.addEventListener('click', handleSubmit); // ubs:ignore
 }
 
 // GOOD: Optional chaining

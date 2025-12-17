@@ -490,6 +490,18 @@ with open(rule_file, 'r', encoding='utf-8') as fh:
             sline = start.get('row')
         if isinstance(sline, int):
             sline += 1
+            # Check for inline suppression
+            if f != '?':
+                try:
+                    with open(f, 'r', encoding='utf-8', errors='ignore') as src:
+                        slines = src.readlines()
+                        idx = sline - 1
+                        if (0 <= idx < len(slines) and 'ubs:ignore' in slines[idx]) or \
+                           (0 <= idx - 1 < len(slines) and 'ubs:ignore' in slines[idx - 1]):
+                            continue
+                except Exception as e:
+                    sys.stderr.write(f"DEBUG: Failed to open {f}: {e}\n")
+                    pass
         sample = f"{f}:{sline if sline is not None else '?'}"
         ent = stats.setdefault(rid, {'count': 0, 'samples': []})
         ent['count'] += 1
