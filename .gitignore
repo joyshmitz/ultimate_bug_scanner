@@ -22,6 +22,7 @@ Thumbs.db
 tmp/
 temp/
 *.tmp
+.bv/
 
 # Python environments
 .venv/
