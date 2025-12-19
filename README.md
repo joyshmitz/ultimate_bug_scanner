@@ -1992,3 +1992,9 @@ curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_sca
 - **UBS + MCP Agent Mail together**: run `ubs --fail-on-warning .` as a standard guardrail step in your MCP Agent Mail workflows so any agent proposing code changes must attach a clean scan (or a summary of remaining issues) to their reply.
 - **Ideal pattern**: one agent writes or refactors code, a “QA agent” triggered via MCP Agent Mail runs UBS against the touched paths, then posts a concise findings report back into the same thread for humans or other agents to act on.
 - **Result**: your multi-agent automation keeps all the communication history in MCP Agent Mail while UBS continuously enforces fast, language-agnostic quality checks on every change.
+
+---
+
+## 🤝 **About Contributions**
+
+> *About Contributions:* Please don't take this the wrong way, but I do not accept outside contributions for any of my projects. I simply don't have the mental bandwidth to review anything, and it's my name on the thing, so I'm responsible for any problems it causes; thus, the risk-reward is highly asymmetric from my perspective. I'd also have to worry about other "stakeholders," which seems unwise for tools I mostly make for myself for free. Feel free to submit issues, and even PRs if you want to illustrate a proposed fix, but know I won't merge them directly. Instead, I'll have Claude or Codex review submissions via `gh` and independently decide whether and how to address them. Bug reports in particular are welcome. Sorry if this offends, but I want to avoid wasted time and hurt feelings. I understand this isn't in sync with the prevailing open-source ethos that seeks community contributions, but it's the only way I can move at this velocity and keep my sanity.
