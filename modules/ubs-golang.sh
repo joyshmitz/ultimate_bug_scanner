@@ -2664,8 +2664,9 @@ if [ "$cap2" -gt 0 ]; then print_finding "warning" "$cap2" "For-loop variable ca
 
 
 print_subheader "sync.WaitGroup Add/Done balance (heuristic)"
-wg_add=$(grep_count_scoped "\.Add\(")
-wg_done=$(grep_count_scoped "\.Done\(")
+# Use more specific patterns to avoid false positives from time.Add, big.Int.Add, etc.
+wg_add=$(grep_count_scoped "(wg|WaitGroup|waitGroup|waitgroup|group)\\.Add\\(")
+wg_done=$(grep_count_scoped "(wg|WaitGroup|waitGroup|waitgroup|group)\\.Done\\(")
 if [ "$wg_add" -gt $((wg_done + 1)) ]; then
   diff=$((wg_add - wg_done))
   print_finding "warning" "$diff" "WaitGroup Add exceeds Done (heuristic)"
@@ -2813,8 +2814,10 @@ if [ "$count" -gt 0 ]; then
   print_finding "warning" "$count" "HTTP response bodies not obviously closed (AST heuristic)"
   [[ "$VERBOSE" -eq 1 ]] && show_ast_samples "go.http-response-body-not-closed" 6 || true
 else
-  http_calls=$(grep_count_scoped "http\.(Get|Post|Head)\(|\.Do\(")
-  body_close=$(grep_count_scoped "\.Body\.Close\(")
+  # Use more specific patterns to avoid false positives from sync.Once.Do, etc.
+  # Match http.Get/Post/Head and common HTTP client variable names .Do()
+  http_calls=$(grep_count_scoped "http\\.(Get|Post|Head)\\(|(client|Client|httpClient|c)\\.Do\\(")
+  body_close=$(grep_count_scoped "\\.Body\\.Close\\(")
   if [ "$http_calls" -gt 0 ] && [ "$body_close" -lt "$http_calls" ]; then
     diff=$((http_calls - body_close))
     print_finding "warning" "$diff" "Possible missing resp.Body.Close() (regex heuristic)"
@@ -3142,7 +3145,7 @@ if [ "$MODS_COUNT" -gt 0 ]; then
   while IFS= read -r mf; do
     [[ -z "$mf" ]] && continue
     gv=$(grep -E '^[[:space:]]*go[[:space:]]+[0-9]+\.[0-9]+' "$mf" 2>/dev/null | head -n1 | awk '{print $2}')
-    if [[ -n "$gv" && "$gv" =~ ^1\.(2[3-9]|[3-9][0-9])$ ]]; then
+    if [[ -n "$gv" && "$gv" =~ ^1\.(2[3-9]|[3-9][0-9])(\.[0-9]+)?$ ]]; then
       up_to_date=$((up_to_date+1))
     else
       outdated=$((outdated+1))

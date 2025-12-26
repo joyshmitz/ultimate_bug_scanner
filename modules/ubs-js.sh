@@ -1171,12 +1171,17 @@ run_type_narrowing_checks() {
     print_finding "info" 0 "Type narrowing helper missing" "Helper script $helper not found"
     return
   fi
-  if ! command -v node >/dev/null 2>&1; then
-    print_finding "info" 0 "Node.js unavailable" "Install Node.js and the 'typescript' package to enable type narrowing analysis"
+  local js_runner
+  if command -v node >/dev/null 2>&1; then
+    js_runner="node"
+  elif command -v bun >/dev/null 2>&1; then
+    js_runner="bun"
+  else
+    print_finding "info" 0 "Node.js/Bun unavailable" "Install Node.js or Bun plus the 'typescript' package to enable type narrowing analysis"
     return
   fi
   local raw status
-  raw="$(node "$helper" "$PROJECT_DIR" 2>&1)"
+  raw="$("$js_runner" "$helper" "$PROJECT_DIR" 2>&1)"
   status=$?
   if [[ $status -ne 0 ]]; then
     print_finding "warning" 0 "Type narrowing analyzer failed" "$raw"
