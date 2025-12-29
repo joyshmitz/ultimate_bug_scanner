@@ -15,9 +15,9 @@ This document captures the threat model for the UBS installer, module downloads,
 - **Signed checksums for installers**: `SHA256SUMS` is signed with minisign. `scripts/verify.sh` verifies the signature + checksum before executing `install.sh`.
 - **Cosign keyless signing for OCI**: Images are signed by digest (not tag) and stored in the Rekor transparency log. SBOM + SLSA provenance attestations are attached to the same digest.
 - **Immutable references in workflows**: release and OCI workflows sign by digest and avoid mutable tag signing.
-- **Module integrity**: the `ubs` meta-runner embeds SHA-256 checksums for each language module. Downloads are verified before execution; invalid checksums fail closed. `ubs doctor --fix` redownloads verified modules.
+- **Module integrity**: the `ubs` meta-runner embeds SHA-256 checksums for each language module and helper asset. Downloads are verified before execution; invalid checksums fail closed. `ubs doctor --fix` redownloads verified modules and helpers.
 - **Nix reproducibility**: `nix flake check` runs in CI to keep packaging deterministic.
-- **No silent auto-update**: module updates require either explicit `--update-modules` or user acceptance via installer prompts. Set `UBS_NO_AUTO_UPDATE=1` (default in CI hooks) to enforce pinned modules.
+- **No silent auto-update**: UBS auto-update is **opt-in** via `UBS_ENABLE_AUTO_UPDATE=1`. Set `UBS_NO_AUTO_UPDATE=1` (or pass `--no-auto-update`) to force-disable updates in strict environments and CI.
 
 ## Verification guide
 

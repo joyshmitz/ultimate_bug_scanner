@@ -72,13 +72,13 @@ const zipCode = parseInt(userInput);  // 💥 "08" becomes 0 in old browsers (oc
 ## 🎯 **The Solution: Your 24/7 Bug Hunting Partner**
 
 ### 🧠 Language-Aware Meta-Runner
-- `ubs` auto-detects **JavaScript/TypeScript, Python, C/C++, Rust, Go, Java, and Ruby** in the same repo and fans out to per-language scanners.
+- `ubs` auto-detects **JavaScript/TypeScript, Python, C/C++, Rust, Go, Java, Ruby, and Swift** in the same repo and fans out to per-language scanners.
 - Each scanner lives under `modules/ubs-<lang>.sh`, ships independently, and supports `--format text|json|jsonl|sarif` for consistent downstream tooling.
 - Modules download lazily (PATH → repo `modules/` → cached under `${XDG_DATA_HOME:-$HOME/.local/share}/ubs/modules`) and are validated before execution.
 - Results from every language merge into one text/JSON/SARIF report via `jq`, so CI systems and AI agents only have to parse a single artifact.
 
 ### 🔐 Supply-Chain Safeguards
-- Every lazily-downloaded module ships with a pinned SHA-256 checksum baked into the meta-runner. Files fetched from GitHub are verified before they can execute, preventing tampering between releases.
+- Every lazily-downloaded module (and its helper assets) ships with pinned SHA-256 checksums baked into the meta-runner. Files fetched from GitHub are verified before they can execute, preventing tampering between releases.
 - The cache lives under `${XDG_DATA_HOME:-$HOME/.local/share}/ubs/modules` by default; use `--module-dir` to relocate it (e.g., inside a CI workspace) while retaining the same verification guarantees.
 - Run `ubs doctor` at any time to audit your environment. It checks for curl/wget availability, writable cache directories, and per-language module integrity. Add `--fix` to redownload missing or corrupted modules proactively.
 - Scanner runs still respect `--update-modules`, but an invalid checksum now causes an immediate failure with remediation guidance rather than executing unverified code.
@@ -315,9 +315,14 @@ bash install.sh --easy-mode --self-test --skip-hooks
 
 ### 🔄 **Auto-Update**
 
-The `ubs` meta-runner automatically checks for updates once every 24 hours. If a new version is available, it self-updates securely before running your scan.
+The `ubs` meta-runner supports an **opt-in** auto-update check (once every 24 hours). This is **disabled by default** for supply-chain safety.
 
-To disable this behavior (e.g., in strict environments):
+To enable auto-update:
+```bash
+export UBS_ENABLE_AUTO_UPDATE=1
+```
+
+To disable it (even if enabled):
 ```bash
 export UBS_NO_AUTO_UPDATE=1
 # or
@@ -701,7 +706,7 @@ Critical issues found? ────┤ YES
 
 UBS stands for "Ultimate Bug Scanner": **The AI Coding Agent's Secret Weapon: Flagging Likely Bugs for Fixing Early On**
 
-**Install:** `curl -sSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/install.sh | bash`
+**Install:** `curl -sSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/master/install.sh | bash`
 
 **Golden Rule:** `ubs <changed-files>` before every commit. Exit 0 = safe. Exit >0 = fix & re-run.
 
@@ -1240,7 +1245,7 @@ Traditional linters were designed for **human developers** in **single-language 
 
 | Traditional Linting (Human-First) | UBS Approach (LLM-First) |
 |---|---|
-| **Goal:** Comprehensive coverage + auto-fix<br>**Speed:** 15-60 seconds acceptable<br>**Setup:** 30 min config per language<br>**Languages:** One tool per language<br>**False positives:** Must be <1% (frustrates humans)<br>**Output:** Human-readable prose | **Goal:** Critical bug detection + fast feedback<br>**Speed:** <5 seconds required<br>**Setup:** Zero config (instant start)<br>**Languages:** One scan for all 7 languages<br>**False positives:** 10-20% OK (LLMs filter instantly)<br>**Output:** Structured file:line for LLM parsing |
+| **Goal:** Comprehensive coverage + auto-fix<br>**Speed:** 15-60 seconds acceptable<br>**Setup:** 30 min config per language<br>**Languages:** One tool per language<br>**False positives:** Must be <1% (frustrates humans)<br>**Output:** Human-readable prose | **Goal:** Critical bug detection + fast feedback<br>**Speed:** <5 seconds required<br>**Setup:** Zero config (instant start)<br>**Languages:** One scan for all 8 languages<br>**False positives:** 10-20% OK (LLMs filter instantly)<br>**Output:** Structured file:line for LLM parsing |
 
 ### **2. LLMs Don't Need Auto-Fix—They ARE the Auto-Fix Engine**
 
@@ -1310,7 +1315,7 @@ pip install pylint black mypy
 curl -fsSL https://raw.githubusercontent.com/.../install.sh | bash
 ubs .
 
-# Done. All 7 languages scanned, unified report.
+# Done. All 8 languages scanned, unified report.
 ```
 
 **This matters because:**
@@ -1513,7 +1518,7 @@ Layer 4: Metrics collection  → Time-series quality tracking
 **This combination of speed + semantic understanding + correlation is unique.**
 
 **Unified multi-language runner:**
-- Auto-detects 7 languages in one scan
+- Auto-detects 8 languages in one scan
 - Parallel execution (Go + Python + Rust simultaneously)
 - Unified JSON/SARIF output for tooling
 - Module system with lazy download/caching
@@ -1644,7 +1649,7 @@ You wouldn't use a truck for a Formula 1 race. You wouldn't use a sports car to 
 These are fundamentally incompatible goals. ESLint would never accept "10-20% false positives are fine" or "skip auto-fix entirely."
 
 **2. Multi-language meta-runner**
-- The unified runner that auto-detects 7 languages is the core innovation
+- The unified runner that auto-detects 8 languages is the core innovation
 - This doesn't fit into any single linter's architecture
 - Each linter project has different maintainers, philosophies, release cycles
 
@@ -1807,7 +1812,7 @@ Use both.
 
 **A:** Probably! The module system makes it easy to add languages.
 
-**Current:** JavaScript/TypeScript, Python, Go, Rust, Java, C++, Ruby (7 languages)
+**Current:** JavaScript/TypeScript, Python, Go, Rust, Java, C++, Ruby, Swift (8 languages)
 
 **Roadmap considerations:**
 - **PHP** - High demand, lots of legacy code
@@ -1849,7 +1854,7 @@ But the core tool will always be free and open source.
 
 **This isn't trying to replace ESLint.** It's solving a different problem:
 
-> **"How do I give LLM coding agents the ability to self-audit across 7 languages with zero configuration overhead and sub-5-second feedback?"**
+> **"How do I give LLM coding agents the ability to self-audit across 8 languages with zero configuration overhead and sub-5-second feedback?"**
 
 No existing tool does this because:
 - Traditional linters are human-first (need auto-fix, low FP tolerance)
