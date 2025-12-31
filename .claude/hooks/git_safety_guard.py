@@ -192,9 +192,10 @@ def rm_rf_targets_are_safe(command: str) -> bool:
                 elif tok == "--force":
                     flags.add("f")
             else:
-                if "r" in tok:
+                # Use .lower() to catch both -r and -R (both valid for rm)
+                if "r" in tok.lower():
                     flags.add("r")
-                if "f" in tok:
+                if "f" in tok.lower():
                     flags.add("f")
             i += 1
 
