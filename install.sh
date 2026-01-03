@@ -2952,28 +2952,53 @@ setup_git_hook() {
     warn "Existing hook backed up to ${hook_file}.backup"
   fi
 
-  cat > "$hook_file" << 'HOOK_EOF'
+  # Get the install directory to embed absolute path in hook
+  # This ensures the hook works even if ~/.local/bin isn't in PATH
+  local install_dir
+  install_dir="$(determine_install_dir)"
+  local ubs_path="$install_dir/ubs"
+
+  # Note: Variables like ${ubs_path} are expanded at hook creation time (embedded as literals)
+  # Variables like \$VAR are escaped and expanded at hook runtime
+  cat > "$hook_file" << HOOK_EOF
 #!/bin/bash
 # Ultimate Bug Scanner - Pre-commit Hook
 # Prevents commits with critical issues
 
 echo "🔬 Running bug scanner..."
 
-if ! command -v ubs >/dev/null 2>&1; then
+# Find ubs: try PATH first, then known install locations
+# This handles cases where ~/.local/bin isn't in PATH for git hooks
+find_ubs() {
+  if command -v ubs >/dev/null 2>&1; then
+    command -v ubs
+  elif [ -x "${ubs_path}" ]; then
+    echo "${ubs_path}"
+  elif [ -x "\$HOME/.local/bin/ubs" ]; then
+    echo "\$HOME/.local/bin/ubs"
+  elif [ -x "/usr/local/bin/ubs" ]; then
+    echo "/usr/local/bin/ubs"
+  else
+    return 1
+  fi
+}
+
+UBS_CMD="\$(find_ubs)" || {
   echo "❌ 'ubs' command not found. Install Ultimate Bug Scanner before committing." >&2
+  echo "   Checked: PATH, ${ubs_path}, \$HOME/.local/bin/ubs, /usr/local/bin/ubs" >&2
   exit 1
-fi
+}
 
-SCAN_LOG=$(mktemp -t ubs-pre-commit.XXXXXX 2>/dev/null || echo "/tmp/ubs-pre-commit.log")
+SCAN_LOG=\$(mktemp -t ubs-pre-commit.XXXXXX 2>/dev/null || echo "/tmp/ubs-pre-commit.log")
 
-if ! ubs . --fail-on-warning 2>&1 | tee "$SCAN_LOG" | tail -30; then
+if ! "\$UBS_CMD" . --fail-on-warning 2>&1 | tee "\$SCAN_LOG" | tail -30; then
   echo ""
   echo "❌ Bug scanner found issues. Fix them or use: git commit --no-verify"
   exit 1
 fi
 
 echo "✓ No critical issues found"
-rm -f "$SCAN_LOG" 2>/dev/null || true
+rm -f "\$SCAN_LOG" 2>/dev/null || true
 HOOK_EOF
 
   chmod +x "$hook_file"
