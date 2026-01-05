@@ -5,7 +5,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue.svg)](https://github.com/Dicklesworthstone/ultimate_bug_scanner)
-[![Version](https://img.shields.io/badge/version-5.0.0-blue.svg)](https://github.com/Dicklesworthstone/ultimate_bug_scanner)
+[![Version](https://img.shields.io/badge/version-5.0.4-blue.svg)](https://github.com/Dicklesworthstone/ultimate_bug_scanner)
 
 <div align="center">
 
@@ -82,6 +82,8 @@ const zipCode = parseInt(userInput);  // 💥 "08" becomes 0 in old browsers (oc
 - The cache lives under `${XDG_DATA_HOME:-$HOME/.local/share}/ubs/modules` by default; use `--module-dir` to relocate it (e.g., inside a CI workspace) while retaining the same verification guarantees.
 - Run `ubs doctor` at any time to audit your environment. It checks for curl/wget availability, writable cache directories, and per-language module integrity. Add `--fix` to redownload missing or corrupted modules proactively.
 - Scanner runs still respect `--update-modules`, but an invalid checksum now causes an immediate failure with remediation guidance rather than executing unverified code.
+- **Developer Pre-commit Hook**: The repository ships with a `.githooks/pre-commit` hook that auto-updates `SHA256SUMS` when modules change and blocks commits with stale checksums. This ensures every release has verified checksums without manual intervention.
+- **Minisign Support**: For additional assurance, set `UBS_MINISIGN_PUBKEY` to verify cryptographic signatures on `SHA256SUMS` via [minisign](https://jedisct1.github.io/minisign/).
 
 ### 🎛 Category Packs & Shareable Reports
 - `--category=resource-lifecycle` focuses the scanners on Python/Go/Java resource hygiene (context managers, defer symmetry, try-with-resources). UBS automatically narrows the language set to those with lifecycle packs enabled and suppresses unrelated categories.
@@ -1946,6 +1948,389 @@ UBS ships seven language-focused analyzers. Each category below is scored using 
 | Domain-Specific Extras | **3** – React hooks, Node I/O, taint flows | **2** – Typing strictness, notebook linting | **2** – Context propagation, HTTP server/client reviews | **2** – Modernization, macro/STL idioms | **3** – Unsafe/FFI audits, cargo inventory | **3** – SQL/Executor/annotation/path handling | **2** – Rails practicals, bundle hygiene |
 
 Use this matrix to decide which language module’s findings you want to prioritize or extend. For example, if you need deeper Go resource-lifecycle audits, you can extend category 5 (defer/cleanup) or contribute new AST-grep rules; for JavaScript security you can build on the taint engine already running in category 7.
+
+---
+
+## 🛡️ **Safety Guards for AI Coding Agents**
+
+When AI agents modify code at speed, a single destructive command can wipe hours of work. UBS ships with a **Git Safety Guard** that intercepts dangerous operations before they execute, designed specifically for Claude Code but applicable to any agent workflow.
+
+### How It Works
+
+The guard lives at `.claude/hooks/git_safety_guard.py` and hooks into Claude Code's command execution pipeline. Before any shell command runs, the guard parses it and blocks patterns that could cause irreversible damage:
+
+| Blocked Command | Why It's Dangerous | Safe Alternative |
+|-----------------|-------------------|------------------|
+| `git checkout -- <file>` | Discards uncommitted changes permanently | `git stash` first |
+| `git reset --hard` | Destroys all uncommitted work | `git reset --soft` or `git stash` |
+| `git clean -f` | Removes untracked files forever | `git clean -n` (dry-run) first |
+| `git push --force` | Rewrites shared history | `git push --force-with-lease` |
+| `rm -rf` on non-temp paths | Deletes files irrecoverably | Explicit temp path required |
+| `git branch -D` | Deletes unmerged branches | `git branch -d` (safe delete) |
+| `git stash drop/clear` | Loses stashed work | Manual review first |
+
+### Intelligent Temp Path Detection
+
+The guard allows `rm -rf` only when targeting explicit temp directories:
+- `${TMPDIR}/...` (macOS/Linux temp)
+- `/tmp/...` and `/var/tmp/...`
+- System-defined temporary locations
+
+Any `rm -rf` targeting project directories, home folders, or ambiguous paths is blocked with a clear explanation.
+
+### Enabling the Guard
+
+The installer sets this up automatically when it detects Claude Code (`.claude/` directory exists). To enable manually:
+
+```bash
+# The installer creates this structure:
+.claude/
+└── hooks/
+    ├── git_safety_guard.py   # Command interceptor
+    └── on-file-write.sh      # Auto-scan on save
+```
+
+The guard produces actionable error messages explaining *why* a command was blocked and *what to do instead*, so AI agents can self-correct without human intervention.
+
+---
+
+## 🔧 **Extended Agent Detection**
+
+Beyond the core agent integrations (Claude Code, Cursor, Codex), the installer detects and configures **12+ coding agents** automatically. When run with `--easy-mode`, all detected agents receive UBS guardrails without prompting.
+
+### Detected Agents
+
+| Agent | Detection Signal | Integration Type |
+|-------|------------------|------------------|
+| **Claude Code** | `.claude/` directory | Hooks + rules |
+| **Cursor** | `.cursor/` directory | Rules file |
+| **Codex CLI** | `.codex/` directory | Rules file/directory |
+| **Gemini Code Assist** | `.gemini/` directory | Rules file |
+| **Windsurf** | `.windsurf/` directory | Rules file |
+| **Cline** | `.cline/` directory | Rules file |
+| **OpenCode** | `.opencode/` directory | Rules file |
+| **Aider** | `.aider.conf.yml` | Lint command config |
+| **Continue** | `.continue/` directory | Rules file |
+| **GitHub Copilot** | VS Code extensions | Workspace settings |
+| **TabNine** | `.tabnine/` directory | Configuration |
+| **Replit** | `replit.com` detection | Environment setup |
+
+### Aider-Specific Integration
+
+For Aider users, the installer adds automatic linting to your configuration:
+
+```yaml
+# Added to ~/.aider.conf.yml
+lint-cmd: "ubs --fail-on-warning ."
+auto-lint: true
+```
+
+This makes every Aider session run UBS automatically before completing tasks.
+
+### Session Logging
+
+The installer logs all detected agents and configuration actions to `$XDG_CONFIG_HOME/ubs/session.md`. Review what was configured with:
+
+```bash
+ubs sessions          # Show last session
+ubs sessions --raw    # Full log with timestamps
+ubs sessions --entries=5  # Last 5 sessions
+```
+
+---
+
+## 🔬 **AST-Based Type Narrowing Analysis**
+
+Beyond regex pattern matching, UBS includes **deep AST-based analyzers** for language-specific type safety issues. These helpers provide precise line-number mapping and understand language semantics that regex cannot capture.
+
+### Supported Languages
+
+| Language | Helper Location | Analysis Focus |
+|----------|-----------------|----------------|
+| TypeScript/JavaScript | `modules/helpers/type_narrowing_ts.js` | Null guards, optional chaining, type predicates |
+| Rust | `modules/helpers/type_narrowing_rust.py` | Option/Result handling, unwrap usage |
+| Kotlin | `modules/helpers/type_narrowing_kotlin.py` | Nullable types, smart casts, `.kt`/`.kts` files |
+| Swift | `modules/helpers/type_narrowing_swift.py` | Optional binding, guard statements |
+
+### How It Works
+
+The TypeScript analyzer, for example, walks the AST to detect patterns like:
+
+```typescript
+// ❌ Detected: Using property without null check
+if (!user) return;
+console.log(user.name);  // user might be undefined here (type not narrowed)
+
+// ✅ Safe: Proper type guard
+if (user === null || user === undefined) return;
+console.log(user.name);  // user is definitely defined
+```
+
+The analyzer understands:
+- **Type guard functions** (`isString()`, `isDefined()`)
+- **Optional chaining** (`user?.name?.first`)
+- **Nullish coalescing** (`value ?? default`)
+- **Discriminated unions** and type predicates
+
+### Disabling Type Narrowing
+
+For faster scans when type safety isn't your focus:
+
+```bash
+ubs . --skip-type-narrowing
+```
+
+This falls back to basic heuristics instead of AST analysis, reducing scan time for large codebases.
+
+---
+
+## ⚡ **ast-grep Auto-Provisioning**
+
+UBS automatically downloads and manages [ast-grep](https://ast-grep.github.io/) for enhanced JavaScript/TypeScript analysis. This happens transparently on first use.
+
+### What Gets Downloaded
+
+| Platform | Binary | SHA-256 Verified |
+|----------|--------|------------------|
+| macOS ARM64 | `ast-grep-aarch64-apple-darwin` | ✓ |
+| macOS Intel | `ast-grep-x86_64-apple-darwin` | ✓ |
+| Linux ARM64 | `ast-grep-aarch64-unknown-linux-gnu` | ✓ |
+| Linux x64 | `ast-grep-x86_64-unknown-linux-gnu` | ✓ |
+| Windows x64 | `ast-grep-x86_64-pc-windows-msvc.exe` | ✓ |
+
+Binaries are cached at `$TOOLS_DIR/ast-grep/<version>/<platform>/` and reused across scans.
+
+### Why ast-grep Matters
+
+**Regex-only detection:**
+```javascript
+// Regex sees: "await" keyword present ✓
+const result = await fetch(url);
+// But misses: promise not awaited in callback
+items.forEach(async (item) => {
+  fetch(item.url);  // ❌ Missing await - regex can't detect this
+});
+```
+
+**ast-grep detection:**
+```javascript
+// AST analysis understands:
+// - async function context
+// - Promise return types
+// - Missing await in nested scopes
+items.forEach(async (item) => {
+  fetch(item.url);  // 🔥 CRITICAL: Unhandled promise in async callback
+});
+```
+
+### Fallback Behavior
+
+If ast-grep fails to download (network issues, unsupported platform), UBS falls back to regex-based detection gracefully. The scan continues with reduced accuracy rather than failing entirely.
+
+---
+
+## 🏥 **Maintenance Commands**
+
+UBS includes built-in maintenance tools for environment auditing and session management.
+
+### `ubs doctor`
+
+Audits your UBS installation and environment:
+
+```bash
+ubs doctor              # Run all checks
+ubs doctor --fix        # Auto-repair issues where possible
+ubs doctor --module-dir=/custom/path  # Check specific cache location
+```
+
+**Checks performed:**
+- curl/wget availability for downloads
+- Module cache directory is writable
+- Checksum tools available (sha256sum, shasum, or openssl)
+- Cached module integrity (SHA-256 verification)
+- ast-grep binary availability and version
+- Language module health
+
+**Example output:**
+```
+🏥 UBS Environment Audit
+────────────────────────
+✓ curl available (curl 8.4.0)
+✓ Cache directory writable (/home/user/.local/share/ubs/modules)
+✓ sha256sum available
+✓ 8/8 modules verified
+✓ ast-grep v0.40.1 ready
+✓ All checks passed
+```
+
+### `ubs sessions`
+
+View installer session history:
+
+```bash
+ubs sessions              # Last session summary
+ubs sessions --entries=3  # Last 3 sessions
+ubs sessions --raw        # Full unformatted log
+ubs sessions --config-dir=/path  # Custom config location
+```
+
+Session logs capture:
+- Timestamp and duration
+- Detected coding agents
+- Configured integrations
+- Any errors or warnings
+- Environment details
+
+---
+
+## 🧪 **Test Suite Infrastructure**
+
+UBS includes a comprehensive manifest-driven test suite for regression testing across all supported languages.
+
+### Test Structure
+
+```
+test-suite/
+├── manifest.json          # Test case definitions
+├── run_manifest.py        # Python test runner
+├── artifacts/             # Captured outputs per test
+├── python/
+│   ├── buggy/            # Intentionally buggy fixtures
+│   └── clean/            # Clean code fixtures
+├── javascript/
+│   ├── buggy/
+│   └── clean/
+├── golang/
+├── rust/
+├── java/
+├── ruby/
+└── cpp/
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+python test-suite/run_manifest.py
+
+# Run specific test case
+python test-suite/run_manifest.py --case js-core-buggy
+
+# List available test cases
+python test-suite/run_manifest.py --list
+
+# Stop on first failure
+python test-suite/run_manifest.py --fail-fast
+```
+
+### Manifest Format
+
+Each test case in `manifest.json` specifies:
+
+```json
+{
+  "id": "python-resource-lifecycle",
+  "path": "test-suite/python/buggy",
+  "description": "Detect resource lifecycle issues in Python",
+  "enabled": true,
+  "args": ["--only=python", "--category=resource-lifecycle"],
+  "expect": {
+    "exit_code": 1,
+    "totals": {
+      "critical": {"min": 3},
+      "warning": {"min": 1}
+    },
+    "require_substrings": ["context manager", "file handle"]
+  }
+}
+```
+
+### Artifact Capture
+
+For each test run, the runner captures:
+- `stdout.log` - Full scanner output
+- `stderr.log` - Error output
+- `result.json` - Parsed summary with exit code, duration, findings
+
+This enables debugging test failures and tracking scanner behavior changes across versions.
+
+---
+
+## 🔄 **Auto-Update System**
+
+UBS includes a background auto-update mechanism that keeps your installation current without manual intervention.
+
+### How It Works
+
+```bash
+# Force immediate update check
+ubs --update .
+
+# Enable automatic updates (checks on each run)
+export UBS_ENABLE_AUTO_UPDATE=1
+ubs .
+
+# Disable auto-updates (default in CI mode)
+export UBS_NO_AUTO_UPDATE=1
+ubs .
+# Or use the flag:
+ubs --no-auto-update .
+
+# Force module re-download before scanning
+ubs --update-modules .
+```
+
+### CI Mode Behavior
+
+When `--ci` is passed or `CI=true` is detected, auto-updates are automatically disabled to ensure reproducible builds. The scanner uses whatever version is cached, preventing mid-pipeline version changes.
+
+### Manual Updates
+
+For controlled environments, manually trigger updates:
+
+```bash
+# Update just the modules
+ubs --update-modules .
+
+# Full self-update (fetches latest ubs binary)
+FORCE_SELF_UPDATE=1 ubs .
+```
+
+---
+
+## 📊 **Beads/Strung JSONL Integration**
+
+For integration with [Beads](https://github.com/Dicklesworthstone/beads) or similar issue-tracking systems, UBS can emit findings as newline-delimited JSON (JSONL).
+
+### Usage
+
+```bash
+# Export all findings to JSONL
+ubs . --beads-jsonl=findings.jsonl
+
+# Export only summary counts (no individual findings)
+ubs . --beads-jsonl=summary.jsonl --jsonl-summary-only
+```
+
+### Output Format
+
+Each line is a self-contained JSON object:
+
+```jsonl
+{"type":"finding","severity":"critical","category":1,"file":"src/app.js","line":42,"message":"Null pointer access"}
+{"type":"finding","severity":"warning","category":7,"file":"src/api.js","line":88,"message":"Potential XSS vector"}
+{"type":"summary","totals":{"critical":1,"warning":1,"info":0},"timestamp":"2025-01-05T12:00:00Z"}
+```
+
+### Integration Pattern
+
+```bash
+# Pipe directly to beads for automatic issue creation
+ubs . --beads-jsonl=/dev/stdout | bd import --from-jsonl
+
+# Or append to existing tracking file
+ubs . --beads-jsonl=.beads/scan-results.jsonl
+```
 
 ---
 
