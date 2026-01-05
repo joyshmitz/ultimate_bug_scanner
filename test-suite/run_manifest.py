@@ -42,7 +42,12 @@ def resolve_path(base: Path, value: str) -> Path:
 
 
 def extract_json_from_stdout(stdout: str) -> Optional[Dict[str, Any]]:
-    """Extract first JSON object from stdout, ignoring trailing content."""
+    """Extract UBS summary JSON object from stdout, ignoring individual findings.
+
+    UBS outputs JSONL findings (one per line) followed by text summary.
+    When --format=json is used, a summary object with 'totals' key is emitted.
+    This function looks for that summary object, not individual findings.
+    """
     decoder = json.JSONDecoder()
     lines = stdout.splitlines()
     for idx, line in enumerate(lines):
@@ -52,6 +57,15 @@ def extract_json_from_stdout(stdout: str) -> Optional[Dict[str, Any]]:
                 # raw_decode stops at end of JSON, ignoring trailing content
                 obj, _ = decoder.raw_decode(candidate)
                 if isinstance(obj, dict):
+                    # Only return if this looks like a UBS summary object
+                    # (has 'totals' or 'project' key), not an individual finding
+                    # (which has 'ruleId', 'severity', 'message' keys)
+                    if "totals" in obj or "project" in obj:
+                        return obj
+                    # Skip individual findings - they have ruleId/severity/message
+                    if "ruleId" in obj or ("severity" in obj and "message" in obj):
+                        continue
+                    # Unknown JSON structure - return it for backwards compat
                     return obj
             except json.JSONDecodeError:
                 continue
