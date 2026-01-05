@@ -1751,7 +1751,7 @@ check_and_update_self(){
 }
 
 finalize_module_dir
-resolve_git_metadata
+resolve_git_metadata || true  # Git metadata is optional; don't fail on repos without remotes
 
 if [[ "$MODE" == "doctor" ]]; then
   run_doctor "$DOCTOR_FIX"
