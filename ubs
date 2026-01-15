@@ -39,6 +39,12 @@ declare -A HELPER_CHECKSUMS=(
   ['helpers/type_narrowing_ts.js']='e129ecf4fb0999dd868780a2a67f422a3cc4ecc17866f21a2a27abfa202bf631'
 )
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Capabilities & helpers (must be defined before first use)
+# ─────────────────────────────────────────────────────────────────────────────
+need_cmd(){ command -v "$1" >/dev/null 2>&1; }
+date_iso(){ if [[ "${CI_MODE:-0}" -eq 1 ]]; then date -u '+%Y-%m-%dT%H:%M:%SZ'; else date '+%Y-%m-%d %H:%M:%S'; fi; }
+
 HELPER_ASSETS=(
   "helpers/resource_lifecycle_py.py"
   "helpers/resource_lifecycle_go.go"
@@ -469,7 +475,7 @@ if [[ "$MAX_DIR_SIZE_MB" -gt 0 && -d "$SOURCE_PROJECT_DIR" ]]; then
   if need_cmd du; then
     # Use du -sm for POSIX-ish systems; fall back to du -sk on others
     # Carefully validate output is numeric before using it
-    local result=""
+    result=""
     result=$(du -sm "$SOURCE_PROJECT_DIR" 2>/dev/null | cut -f1)
     if [[ "$result" =~ ^[0-9]+$ ]]; then
       dir_size_mb="$result"
@@ -519,12 +525,6 @@ if [[ -n "$CATEGORY_FILTER" ]]; then
 else
   unset UBS_CATEGORY_FILTER
 fi
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Capabilities & helpers
-# ─────────────────────────────────────────────────────────────────────────────
-need_cmd(){ command -v "$1" >/dev/null 2>&1; }
-date_iso(){ if [[ "$CI_MODE" -eq 1 ]]; then date -u '+%Y-%m-%dT%H:%M:%SZ'; else date '+%Y-%m-%d %H:%M:%S'; fi; }
 
 ensure_dir(){ mkdir -p "$1" 2>/dev/null || { say "${RED}$X cannot create $1${RESET}"; exit 1; }; }
 
