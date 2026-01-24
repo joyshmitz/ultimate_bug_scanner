@@ -99,8 +99,8 @@ looks_like_toon_rust_encoder(){
     return 1
   fi
 
-  # `toon-tr --help` begins with "TOON reference implementation in Rust (JSON <-> TOON)".
-  # `toon-tr --version` prints "tr X.Y.Z".
+  # `tru --help` begins with "TOON reference implementation in Rust (JSON <-> TOON)".
+  # `tru --version` prints "tru X.Y.Z".
   local help ver
   help="$("$bin" --help 2>&1 | head -n 5 || true)"
   if [[ "$help" == *"TOON reference implementation in Rust"* ]]; then
@@ -108,7 +108,7 @@ looks_like_toon_rust_encoder(){
   fi
 
   ver="$("$bin" --version 2>&1 | head -n 1 || true)"
-  if [[ "$ver" =~ ^tr[[:space:]][0-9] ]]; then
+  if [[ "$ver" =~ ^tru[[:space:]][0-9] ]]; then
     return 0
   fi
 
@@ -169,9 +169,9 @@ trap on_err ERR
 PROJECT_DIR="."
 # Format precedence: CLI > UBS_OUTPUT_FORMAT > TOON_DEFAULT_FORMAT > "text"
 FORMAT="${UBS_OUTPUT_FORMAT:-${TOON_DEFAULT_FORMAT:-text}}"  # text|json|jsonl|sarif|toon
-# TOON encoder binary (default: toon-tr from toon_rust; never use the Node.js `toon` CLI)
-# Resolution order: TOON_BIN > TOON_TR_BIN > TOON_TR_PATH > TOON_TRU_BIN (legacy) > toon-tr
-TOON_BIN="${TOON_BIN:-${TOON_TR_BIN:-${TOON_TR_PATH:-${TOON_TRU_BIN:-toon-tr}}}}"
+# TOON encoder binary (default: tru from toon_rust; never use the Node.js `toon` CLI)
+# Resolution order: TOON_TRU_BIN > TOON_BIN > tru
+TOON_BIN="${TOON_TRU_BIN:-${TOON_BIN:-tru}}"
 CI_MODE=0
 FAIL_ON_WARNING=0
 VERBOSE=0
@@ -265,7 +265,8 @@ Environment Variables:
   UBS_OUTPUT_FORMAT=FMT       Default output format (text|json|jsonl|sarif|toon)
                               Overridden by --format CLI flag
   TOON_DEFAULT_FORMAT=FMT     Global fallback format if UBS_OUTPUT_FORMAT not set
-  TOON_BIN=PATH               TOON encoder binary (default: toon-tr)
+  TOON_TRU_BIN=PATH           Explicit path to tru encoder (overrides TOON_BIN)
+  TOON_BIN=PATH               TOON encoder binary (default: tru)
                               Set to a specific toon_rust encoder path if needed (do not use Node.js toon)
   UBS_MAX_DIR_SIZE_MB=N       Max directory size in MB before refusing to scan (default: 1000)
                               Set to 0 to disable this safety check
@@ -2505,14 +2506,14 @@ case "$FORMAT" in
       status=2
     else
       # Check if TOON encoder is available (UBS_TEST_FORCE_NO_TOON=1 forces fallback for testing)
-      # TOON_BIN can be set to toon_rust's tr binary for better performance
+      # TOON_BIN can be set to toon_rust's tru binary for better performance
       toon_skip_reason=""
       if [[ "${UBS_TEST_FORCE_NO_TOON:-0}" == "1" ]]; then
         toon_skip_reason="disabled by UBS_TEST_FORCE_NO_TOON=1"
       elif ! command -v "$TOON_BIN" >/dev/null 2>&1; then
         toon_skip_reason="not found in PATH"
       elif ! looks_like_toon_rust_encoder "$TOON_BIN"; then
-        toon_skip_reason="does not appear to be toon_rust (expected toon-tr)"
+        toon_skip_reason="does not appear to be toon_rust (expected tru)"
       fi
 
       if [[ -z "$toon_skip_reason" ]]; then

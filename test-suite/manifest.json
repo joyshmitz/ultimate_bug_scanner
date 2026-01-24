@@ -1797,7 +1797,7 @@
           "\"scanners\":"
         ],
         "require_substrings_stderr": [
-          "Warning: tru (TOON encoder) not found in PATH"
+          "Warning: tru (TOON encoder) disabled by UBS_TEST_FORCE_NO_TOON=1"
         ]
       }
     }
