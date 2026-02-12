@@ -2753,6 +2753,21 @@ PY
             _EXC="${_EXC:+$_EXC,}$PROJECT_DIR/$d"
           fi
         done
+        # Expand .ubsignore glob patterns (e.g. **/test_*.py) into real
+        # paths that Bandit's -x flag can understand.  Simple dir names
+        # like "tests" are already handled above; here we only expand
+        # entries that contain glob meta-characters.
+        if [[ -n "$EXTRA_EXCLUDES" ]]; then
+          IFS=',' read -r -a _ign_pats <<< "$EXTRA_EXCLUDES"
+          for _pat in "${_ign_pats[@]}"; do
+            # Skip patterns already covered as plain dir names above
+            [[ "$_pat" != *'*'* && "$_pat" != *'?'* && "$_pat" != *'['* ]] && continue
+            while IFS= read -r _match; do
+              [[ -z "$_match" ]] && continue
+              _EXC="${_EXC:+$_EXC,}$_match"
+            done < <(find "$PROJECT_DIR" -path "$PROJECT_DIR/$_pat" 2>/dev/null || true)
+          done
+        fi
         if run_uv_tool_text bandit -q -r "$PROJECT_DIR" -x "${_EXC:-}" ; then
           print_finding "info" 0 "Bandit scan completed" "See output above"
         else
