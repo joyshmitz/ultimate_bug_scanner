@@ -264,7 +264,7 @@ SESSION_RAW=0
 SESSION_LOG_DIR_OVERRIDE=""
 VERIFY_MODULE_ERR=""
 VERIFY_HELPER_ERR=""
-ALL_LANGS=(js python cpp rust golang java ruby swift)
+ALL_LANGS=(js python c cpp rust golang java ruby swift)
 UPDATE_ONLY=0
 FORCE_SELF_UPDATE=0
 CATEGORY_FILTER=""
@@ -311,7 +311,7 @@ Options:
   --fail-on-warning       Exit non-zero if warnings or critical exist
   -v, --verbose           Pass -v to child scanners (if supported)
   -q, --quiet             Reduce console output (also passes -q to scanners)
-  --only=CSV              Restrict to languages: js,python,cpp,rust,golang,java,ruby,swift
+  --only=CSV              Restrict to languages: js,python,c,cpp,rust,golang,java,ruby,swift
   --exclude=CSV           Exclude languages
   --module-dir=DIR        Where to store/lookup modules (default: $MODULE_DIR_DEFAULT)
   --category=CSV          Focus on category packs (e.g., resource-lifecycle for AST lifecycle analyzers)
@@ -1765,6 +1765,15 @@ detect_lang(){
           -type f \( -name '*.py' -o -name 'pyproject.toml' -o -name 'requirements.txt' -o -name 'setup.py' \) -print -quit 2>/dev/null | grep -q . && found=0
       fi
       ;;
+    c)
+      if need_cmd rg; then
+        rg -q --hidden -g '!build/**' -g '!out/**' -g '!**/.cache/**' \
+           -g '*.{c,h}' -g 'Makefile' -g 'compile_commands.json' . "$PROJECT_DIR" 2>/dev/null && found=0
+      else
+        find "$PROJECT_DIR" \( -name build -o -name out -o -name .cache -o -name .git \) -prune -o \
+          -type f \( -name '*.c' -o -name '*.h' -o -name 'Makefile' -o -name 'compile_commands.json' \) -print -quit 2>/dev/null | grep -q . && found=0
+      fi
+      ;;
     cpp)
       if need_cmd rg; then
         rg -q --hidden -g '!build/**' -g '!out/**' -g '!**/.cache/**' \
@@ -2154,6 +2163,14 @@ elif [[ ${#SCAN_FILES[@]} -gt 0 ]]; then
   prepare_files_workspace
 fi
 
+# Normalize language alias to module name (e.g. "c" -> "cpp").
+normalize_lang(){
+  case "$1" in
+    c) echo "cpp" ;;
+    *) echo "$1" ;;
+  esac
+}
+
 # Build selected language set
 select_langs(){
   local detected=()
@@ -2167,6 +2184,15 @@ select_langs(){
     for i in "${detected[@]}"; do
       for w in "${want[@]}"; do [[ "$i" == "$w" ]] && filtered+=("$i"); done
     done
+    # Also accept aliases: --only=c should match detected cpp
+    for w in "${want[@]}"; do
+      local nw; nw="$(normalize_lang "$w")"
+      if [[ "$nw" != "$w" ]]; then
+        for i in "${detected[@]}"; do
+          [[ "$i" == "$nw" ]] && filtered+=("$i")
+        done
+      fi
+    done
   else
     filtered=("${detected[@]}")
   fi
@@ -2174,12 +2200,21 @@ select_langs(){
     IFS=',' read -r -a drop <<<"$EXCLUDE_LANGS"
     local keep=()
     for i in "${filtered[@]}"; do
-      local skip=0; for d in "${drop[@]}"; do [[ "$i" == "$d" ]] && skip=1; done
+      local skip=0; for d in "${drop[@]}"; do [[ "$i" == "$d" || "$(normalize_lang "$d")" == "$i" ]] && skip=1; done
       [[ $skip -eq 0 ]] && keep+=("$i")
     done
     filtered=("${keep[@]}")
   fi
-  echo "${filtered[@]}"
+  # Normalize all language names to module names and deduplicate.
+  local normalized=() seen_langs=""
+  for i in "${filtered[@]}"; do
+    local n; n="$(normalize_lang "$i")"
+    if [[ " $seen_langs " != *" $n "* ]]; then
+      normalized+=("$n")
+      seen_langs="$seen_langs $n"
+    fi
+  done
+  echo "${normalized[@]}"
 }
 
 # Run a module job
