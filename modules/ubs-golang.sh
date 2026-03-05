@@ -488,7 +488,7 @@ rg_or_grep_targets() {
     return 0
   fi
   local base
-  base="$(git -C "$root" merge-base HEAD origin/HEAD 2>/dev/null || git -C "$root" merge-base HEAD origin/main 2>/dev/null || git -C "$root" merge-base HEAD origin/master 2>/dev/null || true)"
+  base="$(git -C "$root" merge-base HEAD origin/HEAD 2>/dev/null || git -C "$root" merge-base HEAD origin/main 2>/dev/null || true)"
   if [[ -z "$base" ]]; then
     base="$(git -C "$root" merge-base HEAD HEAD~1 2>/dev/null || true)"
   fi

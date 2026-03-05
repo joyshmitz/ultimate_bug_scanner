@@ -1722,6 +1722,87 @@
       }
     },
     {
+      "id": "csharp-buggy",
+      "description": "C# buggy fixtures for async blocking, weak crypto, and exception handling regressions.",
+      "path": "test-suite/csharp/buggy",
+      "language": "csharp",
+      "tags": [
+        "csharp",
+        "buggy"
+      ],
+      "args": [
+        "--only=csharp",
+        "--fail-on-warning",
+        "--no-dotnet"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "critical": {
+            "min": 1
+          },
+          "warning": {
+            "min": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "csharp-clean",
+      "description": "C# clean fixtures using TryParse and awaited HttpClient flows.",
+      "path": "test-suite/csharp/clean",
+      "language": "csharp",
+      "tags": [
+        "csharp",
+        "clean"
+      ],
+      "args": [
+        "--only=csharp",
+        "--no-dotnet"
+      ],
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "critical": {
+            "max": 0
+          },
+          "warning": {
+            "max": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "csharp-direct-module-buggy",
+      "description": "Direct ubs-csharp module contract regression (summary text + exit status).",
+      "path": "test-suite/csharp/buggy",
+      "language": "csharp",
+      "ubs_bin": "../modules/ubs-csharp.sh",
+      "tags": [
+        "csharp",
+        "module",
+        "buggy"
+      ],
+      "args": [
+        "--fail-on-warning",
+        "--no-dotnet"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "critical": {
+            "min": 1
+          },
+          "warning": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "Summary Statistics:"
+        ]
+      }
+    },
+    {
       "id": "toon-format-js-buggy",
       "description": "TOON format output for JS buggy fixtures (validates TOON encoding works).",
       "path": "test-suite/buggy",

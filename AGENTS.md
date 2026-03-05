@@ -173,6 +173,7 @@ modules/ubs-python.sh test-suite/python/buggy/
 | `test-suite/java/` | Java test cases |
 | `test-suite/ruby/` | Ruby test cases |
 | `test-suite/swift/` | Swift test cases |
+| `test-suite/csharp/` | C#/.NET test cases |
 | `test-suite/kotlin/` | Kotlin test cases |
 | `test-suite/edge-cases/` | Tricky edge cases across languages |
 | `test-suite/frameworks/` | Framework-specific patterns |
@@ -194,7 +195,7 @@ If you aren't 100% sure how to use a third-party library, **SEARCH ONLINE** to f
 
 ## ultimate_bug_scanner — This Project
 
-**This is the project you're working on.** The Ultimate Bug Scanner (`ubs`) is a multi-language static analysis meta-runner that dispatches language-specific scanning modules concurrently, merges their outputs, and reports findings in text, JSON, or SARIF format. It covers 8 languages: JavaScript/TypeScript, Python, C/C++, Rust, Go, Java, Ruby, and Swift.
+**This is the project you're working on.** The Ultimate Bug Scanner (`ubs`) is a multi-language static analysis meta-runner that dispatches language-specific scanning modules concurrently, merges their outputs, and reports findings in text, JSON, or SARIF format. It covers 9 languages: JavaScript/TypeScript, Python, C/C++, Rust, Go, Java, Ruby, Swift, and C#.
 
 ### What It Does
 
@@ -210,7 +211,8 @@ Invocation → Parse CLI args → Detect languages → ┬─ ubs-js.sh      (JS
                                                   ├─ ubs-golang.sh  (Go)
                                                   ├─ ubs-java.sh    (Java)
                                                   ├─ ubs-ruby.sh    (Ruby)
-                                                  └─ ubs-swift.sh   (Swift)
+                                                  ├─ ubs-swift.sh   (Swift)
+                                                  └─ ubs-csharp.sh  (C#)
                                                            │
                                                   (concurrent execution)
                                                            │
@@ -242,6 +244,7 @@ ultimate_bug_scanner/
 │   ├── ubs-java.sh                    # Java scanner
 │   ├── ubs-ruby.sh                    # Ruby scanner
 │   ├── ubs-swift.sh                   # Swift scanner
+│   ├── ubs-csharp.sh                  # C# scanner
 │   ├── README.md                      # Module interface contract
 │   └── helpers/                       # AST correlation & type narrowing helpers
 │       ├── resource_lifecycle_go.go   # Go resource lifecycle analysis

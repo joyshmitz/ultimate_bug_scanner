@@ -1,0 +1,1713 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2002,SC2015,SC2034,SC2317
+# UBS C# ULTIMATE BUG SCANNER v3.0
+# Industrial-grade bug & footgun scanner for C#/.NET codebases.
+# Inspired by UBS rust/cpp scanners: uses ripgrep + ast-grep + dotnet CLI (optional).
+#
+# Usage:
+#   bash modules/ubs-csharp.sh [PROJECT_DIR] [options]
+#
+# Key options:
+#   --format=text|json|sarif
+#   --only=1,2,3        Run only specific categories
+#   --skip=4,9          Skip categories
+#   --ci                CI-friendly output + non-zero on critical
+#   --strict-gitignore  Respect .gitignore (even without rg, via git check-ignore)
+#   --no-dotnet         Skip dotnet build/test/format/list package checks
+#   --summary-json=FILE Write machine-readable summary JSON
+#   --emit-findings-json=FILE Write full findings JSON (same as stdout in --format=json)
+
+set -Eeuo pipefail
+shopt -s lastpipe 2>/dev/null || true
+
+VERSION="3.0"
+SCRIPT_NAME="$(basename "$0")"
+
+PROJECT_DIR="."
+FORMAT="text"        # text|json|sarif
+CI_MODE=0
+QUIET=0
+VERBOSE=0
+NO_COLOR_FLAG=0
+DETAIL_LIMIT=5
+JOBS=""
+STRICT_GITIGNORE=0
+
+ONLY_CATEGORIES=""
+SKIP_CATEGORIES=""
+
+INCLUDE_EXT="cs,csx"
+EXCLUDE_DIRS=".git,.hg,.svn,bin,obj,.vs,.idea,.vscode,node_modules,packages,dist,build,out,artifacts,coverage,.terraform,.venv,target"
+EXTRA_EXCLUDE_DIRS=""
+EXCLUDE_GLOBS=""
+
+SUMMARY_JSON=""
+EMIT_FINDINGS_JSON=""
+DUMP_RULES_DIR=""
+EXTRA_AST_RULES_DIRS=""
+
+NO_DOTNET=0
+NO_DOTNET_BUILD=0
+NO_DOTNET_TEST=0
+NO_DOTNET_FORMAT=0
+NO_DOTNET_DEPS=0
+DOTNET_TARGET=""
+
+FAIL_ON_WARNING=0
+FAIL_CRITICAL_N=""
+FAIL_WARNING_N=""
+
+# ---------- colors ----------
+RED=""; GREEN=""; YELLOW=""; BLUE=""; MAGENTA=""; CYAN=""; BOLD=""; DIM=""; RESET=""
+init_colors() {
+  if [[ "$NO_COLOR_FLAG" -eq 1 || -n "${NO_COLOR:-}" || ! -t 1 ]]; then
+    return 0
+  fi
+  RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; BLUE=$'\033[34m'
+  MAGENTA=$'\033[35m'; CYAN=$'\033[36m'; BOLD=$'\033[1m'; DIM=$'\033[2m'
+  RESET=$'\033[0m'
+}
+
+ICON_OK="✅"; ICON_WARN="⚠️"; ICON_CRIT="🚨"; ICON_INFO="ℹ️"; ICON_DOT="•"
+
+# ---------- traps ----------
+TMP_DIR=""
+cleanup() {
+  [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]] && rm -rf "$TMP_DIR" || true
+}
+on_err() {
+  local exit_code=$?
+  local line=${1:-"?"}
+  echo ""
+  echo "${RED}${ICON_CRIT} UBS-C# crashed at line ${line} (exit ${exit_code}).${RESET}" >&2
+  echo "${DIM}Tip: rerun with --verbose and/or --no-dotnet to isolate.${RESET}" >&2
+  exit "$exit_code"
+}
+trap cleanup EXIT
+trap 'on_err $LINENO' ERR
+
+# ---------- helpers ----------
+die() { echo "${RED}${ICON_CRIT} $*${RESET}" >&2; exit 1; }
+note() { [[ "$QUIET" -eq 1 ]] && return 0; echo "${CYAN}${ICON_INFO} $*${RESET}"; }
+warn() { [[ "$QUIET" -eq 1 ]] && return 0; echo "${YELLOW}${ICON_WARN} $*${RESET}"; }
+ok()   { [[ "$QUIET" -eq 1 ]] && return 0; echo "${GREEN}${ICON_OK} $*${RESET}"; }
+
+count_lines() { awk '!/ubs:ignore/ { c++ } END { print c+0 }'; }
+
+# JSON escape (safe for simple strings)
+json_escape() {
+  local s="$1"
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  s=${s//$'\n'/\\n}
+  s=${s//$'\r'/\\r}
+  s=${s//$'\t'/\\t}
+  echo -n "$s"
+}
+
+# ---------- findings model ----------
+declare -a FINDINGS=()
+add_finding() {
+  # args: severity category title file line snippet
+  local sev="$1" cat="$2" title="$3" file="$4" line="$5" snippet="$6"
+  FINDINGS+=("${sev}|${cat}|${title}|${file}|${line}|${snippet}")
+}
+emit_findings_json() {
+  local out="$1"
+  {
+    echo '{'
+    echo '  "meta": {"tool":"ubs-csharp","version":"'"$VERSION"'","project_dir":"'"$(json_escape "$PROJECT_DIR")"'","timestamp":"'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'"},'
+    echo '  "summary": {"files":'"${TOTAL_FILES:-0}"',"critical":'"${CRITICAL_FINDINGS:-0}"',"warning":'"${WARNING_FINDINGS:-0}"',"info":'"${INFO_FINDINGS:-0}"'},'
+    echo '  "findings": ['
+    local first=1
+    local item
+    for item in "${FINDINGS[@]}"; do
+      IFS='|' read -r sev cat title file line snippet <<<"$item"
+      [[ $first -eq 0 ]] && echo ','
+      first=0
+      echo -n '    {"severity":"'"$(json_escape "$sev")"'","category":"'"$(json_escape "$cat")"'","title":"'"$(json_escape "$title")"'","file":"'"$(json_escape "$file")"'","line":'"${line:-0}"',"snippet":"'"$(json_escape "$snippet")"'"}'
+    done
+    echo ''
+    echo '  ]'
+    echo '}'
+  } >"$out"
+}
+
+emit_summary_json() {
+  local crit="${CRITICAL_FINDINGS:-0}" warnc="${WARNING_FINDINGS:-0}" infoc="${INFO_FINDINGS:-0}"
+  echo '{'
+  echo '  "project":"'"$(json_escape "$PROJECT_DIR")"'",'
+  echo '  "files":'"${TOTAL_FILES:-0}"','
+  echo '  "critical":'"$crit"','
+  echo '  "warning":'"$warnc"','
+  echo '  "info":'"$infoc"','
+  echo '  "timestamp":"'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'",'
+  echo '  "format":"'"$FORMAT"'",'
+  echo '  "tool":"ubs-csharp",'
+  echo '  "version":"'"$VERSION"'",'
+  echo '  "exit_code":'"${EXIT_CODE:-0}"''
+  echo '}'
+}
+
+filter_file_list_with_globs() {
+  local out="$1"
+  [[ -n "$EXCLUDE_GLOBS" ]] || return 0
+  [[ "$HAS_PYTHON" -eq 1 ]] || return 0
+
+  local tmp="$TMP_DIR/filelist.exclude"
+  python3 - "$PROJECT_DIR" "$out" "$tmp" "$EXCLUDE_GLOBS" <<'PY' 2>/dev/null || return 0
+import fnmatch
+import os
+import sys
+
+project_dir, in_path, out_path, csv = sys.argv[1:5]
+patterns = []
+for raw in csv.split(","):
+    pat = raw.strip().replace("\\", "/")
+    if not pat:
+        continue
+    if pat.startswith("./"):
+        pat = pat[2:]
+    if pat.startswith("/"):
+        pat = pat[1:]
+    patterns.append(pat.rstrip("/"))
+
+with open(in_path, "rb") as fh:
+    paths = [p.decode("utf-8", "ignore") for p in fh.read().split(b"\0") if p]
+
+with open(out_path, "wb") as out:
+    for path in paths:
+        rel = os.path.relpath(path, project_dir).replace(os.sep, "/")
+        skip = False
+        for pat in patterns:
+            if (
+                fnmatch.fnmatch(rel, pat)
+                or fnmatch.fnmatch(rel, f"{pat}/**")
+                or rel.startswith(f"{pat}/")
+                or fnmatch.fnmatch(os.path.basename(rel), pat)
+            ):
+                skip = True
+                break
+        if not skip:
+            out.write(path.encode("utf-8", "ignore") + b"\0")
+PY
+  mv "$tmp" "$out"
+}
+
+# ---------- tool detection ----------
+HAS_RG=0
+HAS_AST_GREP=0
+HAS_DOTNET=0
+HAS_PYTHON=0
+AST_GREP_CMD=()
+
+detect_tools() {
+  if command -v rg >/dev/null 2>&1; then HAS_RG=1; fi
+  if command -v python3 >/dev/null 2>&1; then HAS_PYTHON=1; fi
+
+  # Prefer ast-grep binary if present
+  if command -v ast-grep >/dev/null 2>&1; then
+    HAS_AST_GREP=1
+    AST_GREP_CMD=(ast-grep)
+  elif command -v sg >/dev/null 2>&1; then
+    # Avoid unix "sg" (setgid) collision: check it looks like ast-grep
+    if sg --version 2>/dev/null | grep -qi 'ast-grep'; then
+      HAS_AST_GREP=1
+      AST_GREP_CMD=(sg)
+    fi
+  elif command -v npx >/dev/null 2>&1; then
+    # Fallback: node-based ast-grep
+    HAS_AST_GREP=1
+    AST_GREP_CMD=(npx -y @ast-grep/cli)
+  fi
+
+  if command -v dotnet >/dev/null 2>&1; then HAS_DOTNET=1; fi
+}
+
+AST_GREP_RUN_STYLE=0
+detect_ast_grep_style() {
+  [[ "$HAS_AST_GREP" -eq 1 ]] || return 0
+  if "${AST_GREP_CMD[@]}" run --help >/dev/null 2>&1; then
+    AST_GREP_RUN_STYLE=1
+  fi
+}
+
+# ---------- file listing ----------
+FILELIST_NUL=""
+# Produces a NUL-delimited list of files under project dir that match include-ext and are not in excluded dirs.
+build_file_list() {
+  local out="$1"
+  local IFS=','; read -r -a exts <<<"$INCLUDE_EXT"
+  local IFS2=','; read -r -a exdirs <<<"$EXCLUDE_DIRS"
+  read -r -a exdirs2 <<<"$EXTRA_EXCLUDE_DIRS"
+  exdirs+=("${exdirs2[@]}")
+  # Build find prune expression
+  local find_cmd=(find "$PROJECT_DIR" -type d)
+  local prune=()
+  local d
+  for d in "${exdirs[@]}"; do
+    [[ -z "$d" ]] && continue
+    prune+=( -name "$d" -o )
+  done
+  if [[ ${#prune[@]} -gt 0 ]]; then
+    prune=("${prune[@]:0:${#prune[@]}-1}") # drop trailing -o
+    find_cmd+=( \( "${prune[@]}" \) -prune -o )
+  else
+    find_cmd+=( -o )
+  fi
+  find_cmd+=( -type f \( )
+  local e
+  for e in "${exts[@]}"; do
+    e="${e#.}"
+    find_cmd+=( -iname "*.${e}" -o )
+  done
+  find_cmd=("${find_cmd[@]:0:${#find_cmd[@]}-1}") # drop trailing -o
+  find_cmd+=( \) -print0 )
+
+  "${find_cmd[@]}" >"$out"
+
+  if [[ "$STRICT_GITIGNORE" -eq 1 && -d "$PROJECT_DIR/.git" ]] && command -v git >/dev/null 2>&1; then
+    if [[ "$HAS_PYTHON" -eq 1 ]]; then
+      # Filter ignored files using git check-ignore (expects paths relative to repo root)
+      local tmp="$TMP_DIR/filelist.filtered"
+      : >"$tmp"
+      python3 - "$PROJECT_DIR" "$out" "$tmp" <<'PY' 2>/dev/null || true
+import os, sys, subprocess
+proj = sys.argv[1]
+nul_list = sys.argv[2]
+out = sys.argv[3]
+try:
+    root = subprocess.check_output(["git","-C",proj,"rev-parse","--show-toplevel"], text=True).strip()
+except Exception:
+    root = proj
+paths=[]
+with open(nul_list,'rb') as f:
+    data=f.read().split(b'\0')
+for b in data:
+    if not b: continue
+    p=b.decode('utf-8','ignore')
+    rel=os.path.relpath(p, root)
+    paths.append(rel)
+if not paths:
+    open(out,'wb').close(); sys.exit(0)
+keep=[]
+chunk=5000
+for i in range(0,len(paths),chunk):
+    part=paths[i:i+chunk]
+    try:
+        proc=subprocess.run(["git","-C",root,"check-ignore","--stdin"], input="\n".join(part), text=True, capture_output=True)
+        ignored=set([ln.strip() for ln in proc.stdout.splitlines() if ln.strip()])
+    except Exception:
+        ignored=set()
+    for rel in part:
+        if rel in ignored: continue
+        keep.append(os.path.join(root, rel))
+with open(out,'wb') as f:
+    for p in keep:
+        f.write(p.encode('utf-8','ignore')+b'\0')
+PY
+      if [[ -s "$tmp" ]]; then
+        mv "$tmp" "$out"
+      fi
+    fi
+  fi
+
+  filter_file_list_with_globs "$out"
+}
+
+# ---------- search backend ----------
+# Print a few matches with context
+print_matches() {
+  local label="$1" _pattern_hint="$2" severity="$3" category="$4"
+  local max="${5:-$DETAIL_LIMIT}"
+  local shown=0
+  local line
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    echo "  ${DIM}${line}${RESET}"
+    # record as finding: file:line:content
+    local file="${line%%:*}"
+    local rest="${line#*:}"
+    local ln="${rest%%:*}"
+    local content="${rest#*:}"
+    add_finding "$severity" "$category" "$label" "$file" "$ln" "$content"
+    shown=$((shown+1))
+    [[ $shown -ge $max ]] && break
+  done
+}
+
+# rg wrapper that respects include/ext and excludes
+rg_search() {
+  local pattern="$1"
+  local out="$2"
+  local -a args=(--no-messages --line-number --with-filename --color never --hidden)
+  # Excludes
+  local IFS=','; read -r -a exdirs <<<"$EXCLUDE_DIRS"
+  read -r -a exdirs2 <<<"$EXTRA_EXCLUDE_DIRS"
+  exdirs+=("${exdirs2[@]}")
+  local d
+  for d in "${exdirs[@]}"; do
+    [[ -z "$d" ]] && continue
+    args+=(--glob "!${d}/**")
+  done
+  if [[ -n "$EXCLUDE_GLOBS" ]]; then
+    local IFS3=','; read -r -a globs <<<"$EXCLUDE_GLOBS"
+    local g
+    for g in "${globs[@]}"; do
+      g="${g#./}"
+      g="${g#/}"
+      g="${g%/}"
+      [[ -z "$g" ]] && continue
+      args+=(--glob "!${g}" --glob "!${g}/**")
+    done
+  fi
+  # Include extensions
+  local IFS=','; read -r -a exts <<<"$INCLUDE_EXT"
+  local e
+  for e in "${exts[@]}"; do
+    e="${e#.}"
+    args+=(--glob "**/*.${e}")
+  done
+  # Gitignore behavior: default is "scan everything" (ignore ignore-files)
+  if [[ "$STRICT_GITIGNORE" -eq 0 ]]; then
+    args+=(--no-ignore --no-ignore-vcs --no-ignore-parent)
+  fi
+  [[ -n "$JOBS" ]] && args+=(--threads "$JOBS")
+  rg "${args[@]}" -e "$pattern" "$PROJECT_DIR" >"$out" 2>/dev/null || true
+}
+
+# Python regex search (fallback when rg missing). Pattern syntax: Python re.
+py_search() {
+  local pattern="$1"
+  local out="$2"
+  [[ -n "$FILELIST_NUL" && -f "$FILELIST_NUL" ]] || build_file_list "$FILELIST_NUL"
+  python3 - "$FILELIST_NUL" "$pattern" "$out" <<'PY' 2>/dev/null || true
+import sys, re
+nul_list=sys.argv[1]
+pattern=sys.argv[2]
+out=sys.argv[3]
+try:
+    rx=re.compile(pattern)
+except re.error:
+    # If user passed a rg-style pattern that python rejects, degrade to literal search.
+    rx=None
+def iter_files():
+    data=open(nul_list,'rb').read().split(b'\0')
+    for b in data:
+        if b: yield b.decode('utf-8','ignore')
+with open(out,'w',encoding='utf-8',errors='ignore') as fo:
+    for path in iter_files():
+        try:
+            with open(path,'r',encoding='utf-8',errors='ignore') as f:
+                for i,line in enumerate(f,1):
+                    if (rx.search(line) if rx else (pattern in line)):
+                        fo.write(f"{path}:{i}:{line.rstrip()}\n")
+        except Exception:
+            pass
+PY
+}
+
+# Basic grep fallback (last resort, ERE-ish); we sanitize a few common escapes.
+grep_search_basic() {
+  local pattern="$1"
+  local out="$2"
+  local p="$pattern"
+  # Best-effort: make some patterns less hostile to ERE grep
+  p="${p//\\s/[[:space:]]}"
+  p="${p//\\b/}"  # drop word boundary (may increase false positives)
+  p="${p//\\(/(}"
+  p="${p//\\)/)}"
+  # Build list if needed
+  [[ -n "$FILELIST_NUL" && -f "$FILELIST_NUL" ]] || build_file_list "$FILELIST_NUL"
+  : >"$out"
+  # Convert NUL list to newline and grep per file
+  while IFS= read -r -d '' f; do
+    grep -nE "$p" "$f" 2>/dev/null | sed "s|^|$f:|" >>"$out" || true
+  done <"$FILELIST_NUL"
+}
+
+search() {
+  local pattern="$1" out="$2"
+  if [[ "$HAS_RG" -eq 1 ]]; then
+    rg_search "$pattern" "$out"
+  elif [[ "$HAS_PYTHON" -eq 1 ]]; then
+    py_search "$pattern" "$out"
+  else
+    grep_search_basic "$pattern" "$out"
+  fi
+}
+
+# ---------- ast-grep ----------
+AST_RULES_DIR=""
+AST_CONFIG_FILE=""
+write_ast_rules() {
+  [[ "$HAS_AST_GREP" -eq 1 ]] || return 0
+  AST_RULES_DIR="$TMP_DIR/ast-rules"
+  mkdir -p "$AST_RULES_DIR"
+  local rules_file="$AST_RULES_DIR/csharp-pack.yml"
+  cat >"$rules_file"<<'YAML'
+rules:
+  - id: cs-async-void
+    message: "async void (except event handlers) can swallow exceptions; prefer Task-returning async."
+    severity: warning
+    language: cs
+    rule:
+      pattern: |
+        async void $M($$) { $$ }
+  - id: cs-task-result
+    message: "Blocking on Task via .Result can deadlock (especially on ASP.NET/UI contexts). Prefer await."
+    severity: critical
+    language: cs
+    rule:
+      pattern: |
+        $T.Result
+  - id: cs-task-wait
+    message: "Blocking on Task via Wait() can deadlock; prefer await."
+    severity: critical
+    language: cs
+    rule:
+      pattern: |
+        $T.Wait()
+  - id: cs-getawaiter-getresult
+    message: "GetAwaiter().GetResult() blocks and can deadlock; prefer await."
+    severity: critical
+    language: cs
+    rule:
+      pattern: |
+        $T.GetAwaiter().GetResult()
+  - id: cs-throw-ex
+    message: "throw ex; resets stack trace. Use bare 'throw;' to preserve it."
+    severity: warning
+    language: cs
+    rule:
+      pattern: |
+        throw $E;
+  - id: cs-empty-catch
+    message: "Empty catch block swallows exceptions."
+    severity: warning
+    language: cs
+    rule:
+      pattern: |
+        catch ($T $E) { }
+  - id: cs-new-httpclient
+    message: "new HttpClient() per call can exhaust sockets; prefer IHttpClientFactory or a shared instance."
+    severity: warning
+    language: cs
+    rule:
+      pattern: |
+        new HttpClient($$)
+  - id: cs-weak-crypto-md5
+    message: "MD5 is cryptographically broken; avoid for security-sensitive hashing."
+    severity: critical
+    language: cs
+    rule:
+      pattern: |
+        MD5.Create()
+  - id: cs-weak-crypto-sha1
+    message: "SHA1 is cryptographically weak; avoid for security-sensitive hashing."
+    severity: critical
+    language: cs
+    rule:
+      pattern: |
+        SHA1.Create()
+  - id: cs-insecure-random
+    message: "System.Random is not cryptographically secure; use RandomNumberGenerator for secrets/tokens."
+    severity: warning
+    language: cs
+    rule:
+      pattern: |
+        new Random($$)
+YAML
+
+  # Config file
+  AST_CONFIG_FILE="$TMP_DIR/astconfig.yml"
+  cat >"$AST_CONFIG_FILE"<<YAML
+ruleDirs:
+  - $AST_RULES_DIR
+YAML
+
+  # Include extra rule dirs
+  if [[ -n "$EXTRA_AST_RULES_DIRS" ]]; then
+    local IFS=','; read -r -a extras <<<"$EXTRA_AST_RULES_DIRS"
+    local d
+    for d in "${extras[@]}"; do
+      [[ -z "$d" ]] && continue
+      echo "  - $d" >>"$AST_CONFIG_FILE"
+    done
+  fi
+
+  if [[ -n "$DUMP_RULES_DIR" ]]; then
+    mkdir -p "$DUMP_RULES_DIR"
+    cp -R "$AST_RULES_DIR" "$DUMP_RULES_DIR/" 2>/dev/null || true
+    cp "$AST_CONFIG_FILE" "$DUMP_RULES_DIR/" 2>/dev/null || true
+  fi
+}
+
+ast_scan_json_stream() {
+  [[ "$HAS_AST_GREP" -eq 1 ]] || return 0
+  [[ -n "$AST_CONFIG_FILE" ]] || return 0
+  "${AST_GREP_CMD[@]}" scan -c "$AST_CONFIG_FILE" "$PROJECT_DIR" --json 2>/dev/null || true
+}
+
+emit_sarif() {
+  local first=1 item level message
+  {
+    echo '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"ubs-csharp","version":"'"$VERSION"'"}},"results":['
+    for item in "${FINDINGS[@]}"; do
+      local sev cat title file line snippet
+      IFS='|' read -r sev cat title file line snippet <<<"$item"
+      case "$sev" in
+        critical) level="error" ;;
+        warning) level="warning" ;;
+        *) level="note" ;;
+      esac
+      message="$title"
+      [[ -n "$snippet" ]] && message="$message - $snippet"
+      [[ $first -eq 0 ]] && echo ','
+      first=0
+      printf '  {"ruleId":"csharp.category.%s","level":"%s","message":{"text":"%s"}' \
+        "$(json_escape "$cat")" "$(json_escape "$level")" "$(json_escape "$message")"
+      if [[ -n "$file" ]]; then
+        printf ',"locations":[{"physicalLocation":{"artifactLocation":{"uri":"%s"}' "$(json_escape "$file")"
+        if [[ "${line:-0}" -gt 0 ]]; then
+          printf ',"region":{"startLine":%s}' "$line"
+        fi
+        printf '}}]}'
+      fi
+      printf '}'
+    done
+    echo
+    echo ']}]}'
+  }
+}
+
+# ---------- categories ----------
+declare -A CATEGORY_NAMES=(
+  [1]="Exceptions & Nullability Hazards"
+  [2]="Resources & IDisposable Footguns"
+  [3]="Concurrency & Async Pitfalls"
+  [4]="Numeric & Floating-Point Traps"
+  [5]="Collections & LINQ Gotchas"
+  [6]="Strings & Allocation Smells"
+  [7]="Filesystem / Process / IO Risks"
+  [8]="Security Red Flags"
+  [9]="Code Quality Markers"
+  [10]="API Misuse & Correctness"
+  [11]="Tests / Debug Leftovers"
+  [12]="Formatting & Analyzer Signals"
+  [13]="Build & Test Health"
+  [14]="Dependency Hygiene (NuGet)"
+  [15]="Exception Handling Anti-patterns"
+  [16]="ASP.NET / Web Pitfalls"
+  [17]="AST-Grep Rule Pack"
+  [18]="Project Inventory"
+  [19]="Resource Lifecycle Correlation"
+  [20]="Async Locks / Semaphores / Await-in-Lock"
+  [21]="Exception Surfaces & Rethrow Issues"
+  [22]="Suspicious Casts & Truncation"
+  [23]="Parsing & Validation Robustness"
+  [24]="Perf / DoS Hotspots"
+)
+
+list_categories() {
+  local k
+  for k in $(printf "%s\n" "${!CATEGORY_NAMES[@]}" | sort -n); do
+    echo "$k - ${CATEGORY_NAMES[$k]}"
+  done
+}
+
+category_enabled() {
+  local cat="$1"
+  if [[ -n "$ONLY_CATEGORIES" ]]; then
+    [[ ",$ONLY_CATEGORIES," == *",$cat,"* ]] || return 1
+  fi
+  if [[ -n "$SKIP_CATEGORIES" ]]; then
+    [[ ",$SKIP_CATEGORIES," == *",$cat,"* ]] && return 1
+  fi
+  return 0
+}
+
+# ---------- counters ----------
+TOTAL_FILES=0
+CRITICAL_FINDINGS=0
+WARNING_FINDINGS=0
+INFO_FINDINGS=0
+
+bump_counter() {
+  local sev="$1" n="$2"
+  case "$sev" in
+    critical) CRITICAL_FINDINGS=$((CRITICAL_FINDINGS+n));;
+    warning)  WARNING_FINDINGS=$((WARNING_FINDINGS+n));;
+    info)     INFO_FINDINGS=$((INFO_FINDINGS+n));;
+  esac
+}
+
+# ---------- dotnet helpers ----------
+DOTNET_LOG=""
+detect_dotnet_target() {
+  [[ "$HAS_DOTNET" -eq 1 ]] || return 0
+  [[ -n "$DOTNET_TARGET" ]] && return 0
+  # pick a solution if one exists
+  local sln
+  sln="$(find "$PROJECT_DIR" -maxdepth 2 -name '*.sln' -print -quit 2>/dev/null || true)"
+  if [[ -n "$sln" ]]; then
+    DOTNET_TARGET="$sln"
+    return 0
+  fi
+  local csproj
+  csproj="$(find "$PROJECT_DIR" -maxdepth 2 -name '*.csproj' -print -quit 2>/dev/null || true)"
+  if [[ -n "$csproj" ]]; then
+    DOTNET_TARGET="$csproj"
+  fi
+}
+
+require_dotnet_target() {
+  detect_dotnet_target
+  if [[ -z "$DOTNET_TARGET" ]]; then
+    [[ "$FORMAT" == "text" ]] && echo "${DIM}No .sln or .csproj found; skipping dotnet project checks.${RESET}"
+    return 1
+  fi
+  return 0
+}
+
+run_dotnet_step() {
+  local label="$1"; shift
+  [[ "$HAS_DOTNET" -eq 1 ]] || { warn "$label: dotnet not found (skipping)"; return 0; }
+  local logfile
+  logfile="$TMP_DIR/dotnet.$(echo "$label" | tr ' ' '_' | tr -cd '[:alnum:]_').log"
+  note "$label ..."
+  ( set +e; dotnet "$@" >"$logfile" 2>&1; echo $? >"$logfile.exit" )
+  local rc
+  rc="$(cat "$logfile.exit" 2>/dev/null || echo 1)"
+  if [[ "$rc" -eq 0 ]]; then
+    ok "$label: OK"
+  else
+    warn "$label: exit $rc (see log in $logfile)"
+  fi
+  DOTNET_LOG="$logfile"
+  return "$rc"
+}
+
+# ---------- analysis steps ----------
+banner() {
+  if [[ "$QUIET" -eq 1 || "$FORMAT" != "text" ]]; then
+    return 0
+  fi
+  cat <<'BANNER'
+╔══════════════════════════════════════════════════════════════════╗
+║                  UBS C# ULTIMATE BUG SCANNER                     ║
+║                     Industrial-Grade Edition                     ║
+╚══════════════════════════════════════════════════════════════════╝
+BANNER
+}
+
+usage() {
+  cat <<EOF
+$SCRIPT_NAME v$VERSION - UBS C# ULTIMATE BUG SCANNER
+
+Usage:
+  $SCRIPT_NAME [PROJECT_DIR] [options]
+
+Options:
+  --format=text|json|sarif     Output format (default: text)
+  --ci                         CI mode (no emojis, non-zero on critical)
+  --quiet                      Less console output
+  --verbose                    More sample findings per rule
+  --no-color                   Disable colors
+  --include-ext=cs,csx         File extensions to scan (default: $INCLUDE_EXT)
+  --exclude-dirs=csv           Override excluded dir list
+  --extra-exclude-dirs=csv     Add extra excluded dirs
+  --exclude=csv                Additional ignore globs/directories (meta-runner compatible)
+  --jobs=N                     rg threads
+  --strict-gitignore           Respect .gitignore (and git check-ignore when rg missing)
+
+  --only=1,2,3                 Run only these categories
+  --skip=4,9                   Skip these categories
+  --list-categories            Print category list and exit
+
+  --rules=DIR[,DIR]            Extra ast-grep rule directories
+  --dump-rules=DIR             Dump generated ast rules + config
+
+  --no-dotnet                  Skip all dotnet CLI checks
+  --no-build                   Skip dotnet build
+  --no-test                    Skip dotnet test
+  --no-format                  Skip dotnet format
+  --no-deps                    Skip dotnet list package
+  --dotnet-target=PATH         Build/test/list packages against this .sln/.csproj
+
+  --fail-on-warning            Non-zero if any warnings are found
+  --fail-critical=N            Non-zero if critical findings >= N
+  --fail-warning=N             Non-zero if warnings >= N
+
+  --summary-json=FILE          Write summary JSON to file
+  --emit-findings-json=FILE    Write full findings JSON to file (or use --format=json)
+
+EOF
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help) usage; exit 0;;
+      --format=*) FORMAT="${1#*=}"; shift;;
+      --ci) CI_MODE=1; shift;;
+      --quiet|-q) QUIET=1; shift;;
+      --verbose|-v) VERBOSE=1; DETAIL_LIMIT=15; shift;;
+      --no-color) NO_COLOR_FLAG=1; shift;;
+      --include-ext=*) INCLUDE_EXT="${1#*=}"; shift;;
+      --exclude-dirs=*) EXCLUDE_DIRS="${1#*=}"; shift;;
+      --extra-exclude-dirs=*) EXTRA_EXCLUDE_DIRS="${1#*=}"; shift;;
+      --exclude=*) EXCLUDE_GLOBS="${1#*=}"; shift;;
+      --jobs=*) JOBS="${1#*=}"; shift;;
+      --strict-gitignore) STRICT_GITIGNORE=1; shift;;
+
+      --only=*) ONLY_CATEGORIES="${1#*=}"; shift;;
+      --skip=*) SKIP_CATEGORIES="${1#*=}"; shift;;
+      --list-categories) list_categories; exit 0;;
+
+      --rules=*) EXTRA_AST_RULES_DIRS="${1#*=}"; shift;;
+      --dump-rules=*) DUMP_RULES_DIR="${1#*=}"; shift;;
+
+      --no-dotnet) NO_DOTNET=1; shift;;
+      --no-build) NO_DOTNET_BUILD=1; shift;;
+      --no-test) NO_DOTNET_TEST=1; shift;;
+      --no-format) NO_DOTNET_FORMAT=1; shift;;
+      --no-deps) NO_DOTNET_DEPS=1; shift;;
+      --dotnet-target=*) DOTNET_TARGET="${1#*=}"; shift;;
+
+      --fail-on-warning) FAIL_ON_WARNING=1; shift;;
+      --fail-critical=*) FAIL_CRITICAL_N="${1#*=}"; shift;;
+      --fail-warning=*) FAIL_WARNING_N="${1#*=}"; shift;;
+
+      --summary-json=*) SUMMARY_JSON="${1#*=}"; shift;;
+      --emit-findings-json=*) EMIT_FINDINGS_JSON="${1#*=}"; shift;;
+
+      --) shift; break;;
+      -*)
+        die "Unknown option: $1"
+        ;;
+      *)
+        PROJECT_DIR="$1"; shift;;
+    esac
+  done
+
+  case "$FORMAT" in
+    text|json|sarif) ;;
+    *) die "--format must be text|json|sarif";;
+  esac
+
+  if [[ "$CI_MODE" -eq 1 ]]; then
+    NO_COLOR_FLAG=1
+    ICON_OK="[OK]"; ICON_WARN="[WARN]"; ICON_CRIT="[CRIT]"; ICON_INFO="[INFO]"; ICON_DOT="*"
+  fi
+  if [[ "$FORMAT" == "json" || "$FORMAT" == "sarif" ]]; then
+    QUIET=1
+    NO_COLOR_FLAG=1
+  fi
+
+  [[ -d "$PROJECT_DIR" ]] || die "Project directory not found: $PROJECT_DIR"
+  PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
+}
+
+count_project_files() {
+  FILELIST_NUL="$TMP_DIR/filelist.nul"
+  build_file_list "$FILELIST_NUL"
+  if [[ "$HAS_PYTHON" -eq 1 ]]; then
+    TOTAL_FILES=$(python3 - "$FILELIST_NUL" <<'PY' 2>/dev/null || echo 0
+import sys
+data=open(sys.argv[1],'rb').read().split(b'\0')
+print(sum(1 for b in data if b))
+PY
+)
+  else
+    # Fallback: count entries in NUL-delimited list without python.
+    TOTAL_FILES=$(LC_ALL=C tr '\000' '\n' <"$FILELIST_NUL" | awk 'NF{c++} END{print c+0}')
+  fi
+}
+
+# ---------- category implementations ----------
+category_1_exceptions_nullability() {
+  local cat=1
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+
+  local tmp="$TMP_DIR/cat1.txt"
+  local hits=0
+
+  # null-forgiving operator "!" after identifier (approx)
+search '[A-Za-z_][A-Za-z0-9_]*\s*![\.\[]' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} null-forgiving operator usage (!.) - review nullability assumptions ($hits)${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "Null-forgiving operator (!)" "!." "warning" "$cat" || true
+  fi
+
+  # #nullable disable
+search '^\s*#nullable\s+disable\b' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} '#nullable disable' found ($hits) - may hide nullability bugs${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "#nullable disable" "#nullable disable" "warning" "$cat" || true
+  fi
+
+  # throwing System.Exception directly (smell)
+search '\bthrow\s+new\s+Exception\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter info "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} throw new Exception(...) ($hits) - consider more specific exception types${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "throw new Exception" "throw new Exception" "info" "$cat" || true
+  fi
+}
+
+category_2_resources_idisposable() {
+  local cat=2
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+
+  local tmp="$TMP_DIR/cat2.txt"
+  local hits=0
+
+  # new HttpClient without using/factory
+search '\bnew\s+HttpClient\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} new HttpClient(...) ($hits) - prefer IHttpClientFactory or shared instance${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "new HttpClient()" "new HttpClient" "warning" "$cat" || true
+  fi
+
+  # FileStream/StreamReader/StreamWriter without using (approx: line contains new StreamReader but not using)
+search '\bnew\s+(FileStream|StreamReader|StreamWriter)\s*\(' "$tmp"
+  hits=$(cat "$tmp" | grep -v '^[[:space:]]*using\b' | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} Stream created without 'using' on same line (approx) ($hits)${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | grep -v '^[[:space:]]*using\b' | print_matches "Stream without using" "new Stream" "warning" "$cat" || true
+  fi
+}
+
+category_3_concurrency_async() {
+  local cat=3
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+
+  local tmp="$TMP_DIR/cat3.txt"
+  local hits=0
+
+  # async void
+search '\basync\s+void\b' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} async void methods ($hits) - exceptions can crash process; prefer Task${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "async void" "async void" "warning" "$cat" || true
+  fi
+
+  # .Result / .Wait() / GetAwaiter().GetResult()
+  search '\.Result\b' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter critical "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${RED}${ICON_CRIT} Blocking on Task via .Result ($hits) - deadlock risk${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches ".Result" ".Result" "critical" "$cat" || true
+  fi
+
+search '\.Wait\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter critical "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${RED}${ICON_CRIT} Blocking on Task via Wait() ($hits) - deadlock risk${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches ".Wait()" ".Wait(" "critical" "$cat" || true
+  fi
+
+search 'GetAwaiter\s*\(\s*\)\s*\.GetResult\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter critical "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${RED}${ICON_CRIT} GetAwaiter().GetResult() ($hits) - deadlock risk${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "GetAwaiter().GetResult" "GetAwaiter().GetResult" "critical" "$cat" || true
+  fi
+
+  # Thread.Sleep in async contexts (heuristic)
+search '\bThread\.Sleep\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} Thread.Sleep(...) ($hits) - blocks thread; in async code prefer Task.Delay${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "Thread.Sleep" "Thread.Sleep" "warning" "$cat" || true
+  fi
+}
+
+category_4_numeric_fp() {
+  local cat=4
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+  local tmp="$TMP_DIR/cat4.txt"
+  local hits=0
+
+  # float/double/decimal equality (heuristic)
+  search '\b(float|double|decimal)\b.*(==|!=)' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter info "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} Floating/decimal equality comparisons ($hits) - review tolerance/precision${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "FP equality" "==" "info" "$cat" || true
+  fi
+
+  # unchecked casts to int
+search '\(\s*int\s*\)\s*[A-Za-z_][A-Za-z0-9_]*' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter info "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} Casts to int ($hits) - possible truncation/overflow${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "(int) cast" "(int)" "info" "$cat" || true
+  fi
+}
+
+category_5_collections_linq() {
+  local cat=5
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+  local tmp="$TMP_DIR/cat5.txt"
+  local hits=0
+
+  # First() without Any() or check - heuristic
+search '\.First\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} .First(...) usages ($hits) - may throw on empty sequences; consider FirstOrDefault + null check${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches ".First(" ".First(" "warning" "$cat" || true
+  fi
+
+  # Multiple enumeration smell: .Count() > 0
+search '\.Count\s*\(\s*\)\s*>\s*0' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter info "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} .Count() > 0 ($hits) - prefer .Any() for IEnumerable to avoid full enumeration${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches ".Count() > 0" "Count() > 0" "info" "$cat" || true
+  fi
+}
+
+category_6_strings_alloc() {
+  local cat=6
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+  local tmp="$TMP_DIR/cat6.txt"
+  local hits=0
+
+  # string concatenation in loops (heuristic: "+=" with string literal)
+search '\+\=\s*"[^"]*"' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter info "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} String '+=' concatenation ($hits) - in loops consider StringBuilder${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "String +=" "+=" "info" "$cat" || true
+  fi
+}
+
+category_7_io_process() {
+  local cat=7
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+  local tmp="$TMP_DIR/cat7.txt"
+  local hits=0
+
+  # Process.Start
+search '\bProcess\.Start\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} Process.Start(...) ($hits) - ensure inputs are validated/escaped${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "Process.Start" "Process.Start" "warning" "$cat" || true
+  fi
+
+  # Path.Combine with suspicious user input names (heuristic)
+search '\bPath\.Combine\s*\([^)]*(request|query|input|user|param|args)\b' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter info "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} Path.Combine with user-ish input ($hits) - review for path traversal${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "Path.Combine(user input)" "Path.Combine" "info" "$cat" || true
+  fi
+}
+
+category_8_security() {
+  local cat=8
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+  local tmp="$TMP_DIR/cat8.txt"
+  local hits=0
+
+  # weak crypto
+search '\b(MD5|SHA1)\.Create\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter critical "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${RED}${ICON_CRIT} Weak crypto (MD5/SHA1) ($hits)${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "Weak crypto" "MD5/SHA1" "critical" "$cat" || true
+  fi
+
+  # insecure random
+search '\bnew\s+Random\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} new Random() ($hits) - not crypto-secure (if used for secrets)${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "new Random" "new Random" "warning" "$cat" || true
+  fi
+
+  # TLS certificate validation disabled
+search 'ServerCertificateCustomValidationCallback\s*=\s*\([^)]*\)\s*=>\s*true' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter critical "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${RED}${ICON_CRIT} TLS validation disabled via ServerCertificateCustomValidationCallback => true ($hits)${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "TLS validation disabled" "ServerCertificateCustomValidationCallback" "critical" "$cat" || true
+  fi
+
+  # SQL injection-ish string concatenation (very heuristic)
+search '\b(SELECT|UPDATE|DELETE|INSERT)\b.*\+\s*' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} SQL string concatenation patterns ($hits) - prefer parameterized queries${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "SQL concat" "SELECT + ..." "warning" "$cat" || true
+  fi
+
+  # hardcoded secrets (heuristic)
+search '\b(api[_-]?key|secret|password|token)\b\s*=\s*"[^"]{8,}"' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter critical "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${RED}${ICON_CRIT} Possible hardcoded secrets ($hits) - rotate + move to secret store${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "Hardcoded secret" "secret" "critical" "$cat" || true
+  fi
+}
+
+category_9_quality_markers() {
+  local cat=9
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+  local tmp="$TMP_DIR/cat9.txt"
+  local hits=0
+  search '\b(TODO|FIXME|HACK|XXX)\b' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter info "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} TODO/FIXME/HACK markers ($hits)${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "Markers" "TODO" "info" "$cat" || true
+  fi
+}
+
+category_10_api_misuse() {
+  local cat=10
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+  local tmp="$TMP_DIR/cat10.txt"
+  local hits=0
+
+  # DateTime.Now in server code (heuristic)
+  search '\bDateTime\.Now\b' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter info "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} DateTime.Now ($hits) - consider DateTime.UtcNow or TimeProvider for testability${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "DateTime.Now" "DateTime.Now" "info" "$cat" || true
+  fi
+
+  # GC.Collect
+search '\bGC\.Collect\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} GC.Collect() ($hits) - usually indicates perf issues or misconception${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "GC.Collect" "GC.Collect" "warning" "$cat" || true
+  fi
+}
+
+category_11_tests_debug() {
+  local cat=11
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+  local tmp="$TMP_DIR/cat11.txt"
+  local hits=0
+
+search '\bDebugger\.Break\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} Debugger.Break() ($hits) - remove before shipping${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "Debugger.Break" "Debugger.Break" "warning" "$cat" || true
+  fi
+
+search '^\s*#if\s+DEBUG\b' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter info "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} #if DEBUG blocks ($hits) - ensure no prod-only behavior hiding${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "#if DEBUG" "#if DEBUG" "info" "$cat" || true
+  fi
+
+search '\bConsole\.Write(Line)?\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter info "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} Console.Write/WriteLine ($hits) - check for noisy logs/leaked secrets${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "Console.WriteLine" "Console.Write" "info" "$cat" || true
+  fi
+}
+
+category_12_format_analyzers() {
+  local cat=12
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+
+  if [[ "$NO_DOTNET" -eq 1 || "$NO_DOTNET_FORMAT" -eq 1 ]]; then
+    [[ "$FORMAT" == "text" ]] && echo "${DIM}dotnet format skipped (--no-dotnet/--no-format).${RESET}"
+    return 0
+  fi
+  if [[ "$HAS_DOTNET" -eq 0 ]]; then
+    [[ "$FORMAT" == "text" ]] && echo "${DIM}dotnet not found.${RESET}"
+    return 0
+  fi
+
+  require_dotnet_target || return 0
+
+  # dotnet format verify (best-effort, may not be available)
+  local rc=0
+  if dotnet format --help >/dev/null 2>&1; then
+    if [[ -n "$DOTNET_TARGET" ]]; then
+      run_dotnet_step "dotnet format (verify)" format "$DOTNET_TARGET" --verify-no-changes || rc=$?
+    else
+      run_dotnet_step "dotnet format (verify)" format --verify-no-changes || rc=$?
+    fi
+    if [[ "$rc" -ne 0 ]]; then
+      bump_counter warning 1
+      add_finding "warning" "$cat" "dotnet format reports formatting/analyzer issues" "$DOTNET_LOG" 0 ""
+      [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} dotnet format indicates issues. See: $DOTNET_LOG${RESET}"
+    else
+      [[ "$FORMAT" == "text" ]] && echo "${GREEN}${ICON_OK} dotnet format: no changes needed${RESET}"
+    fi
+  else
+    [[ "$FORMAT" == "text" ]] && echo "${DIM}dotnet format not available in this SDK (skipping).${RESET}"
+  fi
+}
+
+category_13_build_test() {
+  local cat=13
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+
+  if [[ "$NO_DOTNET" -eq 1 || "$HAS_DOTNET" -eq 0 ]]; then
+    [[ "$FORMAT" == "text" ]] && echo "${DIM}dotnet build/test skipped (--no-dotnet or dotnet missing).${RESET}"
+    return 0
+  fi
+
+  require_dotnet_target || return 0
+
+  if [[ "$NO_DOTNET_BUILD" -eq 0 ]]; then
+    local rc=0
+    if [[ -n "$DOTNET_TARGET" ]]; then
+      if run_dotnet_step "dotnet build" build "$DOTNET_TARGET" -v minimal; then
+        rc=0
+      else
+        rc=$?
+      fi
+    else
+      if run_dotnet_step "dotnet build" build -v minimal; then
+        rc=0
+      else
+        rc=$?
+      fi
+    fi
+    if [[ "$rc" -ne 0 ]]; then
+      bump_counter critical 1
+      add_finding "critical" "$cat" "dotnet build failed" "$DOTNET_LOG" 0 ""
+      [[ "$FORMAT" == "text" ]] && echo "${RED}${ICON_CRIT} dotnet build failed. See: $DOTNET_LOG${RESET}"
+    fi
+  else
+    [[ "$FORMAT" == "text" ]] && echo "${DIM}dotnet build skipped (--no-build).${RESET}"
+  fi
+
+  if [[ "$NO_DOTNET_TEST" -eq 0 ]]; then
+    local rc2=0
+    if [[ -n "$DOTNET_TARGET" ]]; then
+      if run_dotnet_step "dotnet test" test "$DOTNET_TARGET" -v minimal --nologo; then
+        rc2=0
+      else
+        rc2=$?
+      fi
+    else
+      if run_dotnet_step "dotnet test" test -v minimal --nologo; then
+        rc2=0
+      else
+        rc2=$?
+      fi
+    fi
+    if [[ "$rc2" -ne 0 ]]; then
+      bump_counter warning 1
+      add_finding "warning" "$cat" "dotnet test failed" "$DOTNET_LOG" 0 ""
+      [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} dotnet test failed. See: $DOTNET_LOG${RESET}"
+    fi
+  else
+    [[ "$FORMAT" == "text" ]] && echo "${DIM}dotnet test skipped (--no-test).${RESET}"
+  fi
+}
+
+category_14_deps_nuget() {
+  local cat=14
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+
+  if [[ "$NO_DOTNET" -eq 1 || "$NO_DOTNET_DEPS" -eq 1 || "$HAS_DOTNET" -eq 0 ]]; then
+    [[ "$FORMAT" == "text" ]] && echo "${DIM}dotnet list package skipped (--no-dotnet/--no-deps or dotnet missing).${RESET}"
+    return 0
+  fi
+
+  require_dotnet_target || return 0
+
+  local vuln_log="$TMP_DIR/dotnet.list.vuln.log"
+  local outd_log="$TMP_DIR/dotnet.list.outdated.log"
+
+  # Vulnerabilities (best effort)
+  if dotnet list package --help 2>/dev/null | grep -q -- '--vulnerable'; then
+    note "dotnet list package --vulnerable ..."
+    if [[ -n "$DOTNET_TARGET" ]]; then
+      ( set +e; dotnet list "$DOTNET_TARGET" package --vulnerable >"$vuln_log" 2>&1; echo $? >"$vuln_log.exit" )
+    else
+      ( set +e; dotnet list package --vulnerable >"$vuln_log" 2>&1; echo $? >"$vuln_log.exit" )
+    fi
+    local rc; rc="$(cat "$vuln_log.exit" 2>/dev/null || echo 1)"
+    if [[ "$rc" -ne 0 ]]; then
+      bump_counter warning 1
+      add_finding "warning" "$cat" "dotnet list package --vulnerable failed" "$vuln_log" 0 ""
+      [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} dotnet list package --vulnerable failed (exit $rc). See: $vuln_log${RESET}"
+    else
+      # Heuristic: count lines mentioning "Severity" or advisory URLs
+      local vuln_hits
+      vuln_hits=$(grep -E 'Severity|https?://|CVE-' "$vuln_log" | count_lines)
+      if [[ "$vuln_hits" -gt 0 ]]; then
+        bump_counter critical 1
+        add_finding "critical" "$cat" "NuGet vulnerabilities reported (inspect dotnet list package --vulnerable output)" "$vuln_log" 0 ""
+        [[ "$FORMAT" == "text" ]] && echo "${RED}${ICON_CRIT} NuGet vulnerabilities may be present. Review: $vuln_log${RESET}"
+      else
+        [[ "$FORMAT" == "text" ]] && echo "${GREEN}${ICON_OK} No obvious vulnerable packages reported.${RESET}"
+      fi
+    fi
+  else
+    [[ "$FORMAT" == "text" ]] && echo "${DIM}dotnet list package --vulnerable not supported by this SDK (skipping).${RESET}"
+  fi
+
+  # Outdated
+  note "dotnet list package --outdated ..."
+  if [[ -n "$DOTNET_TARGET" ]]; then
+    ( set +e; dotnet list "$DOTNET_TARGET" package --outdated >"$outd_log" 2>&1; echo $? >"$outd_log.exit" )
+  else
+    ( set +e; dotnet list package --outdated >"$outd_log" 2>&1; echo $? >"$outd_log.exit" )
+  fi
+  local rc2; rc2="$(cat "$outd_log.exit" 2>/dev/null || echo 1)"
+  if [[ "$rc2" -ne 0 ]]; then
+    bump_counter info 1
+    add_finding "info" "$cat" "dotnet list package --outdated failed" "$outd_log" 0 ""
+    [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} dotnet list package --outdated failed (exit $rc2). See: $outd_log${RESET}"
+  else
+    local out_hits
+    out_hits=$(grep -E '\bLatest\b|\bWanted\b' "$outd_log" | count_lines)
+    if [[ "$out_hits" -gt 0 ]]; then
+      bump_counter info 1
+      add_finding "info" "$cat" "Some packages may be outdated (inspect dotnet list package --outdated output)" "$outd_log" 0 ""
+      [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} Some packages may be outdated. Review: $outd_log${RESET}"
+    else
+      [[ "$FORMAT" == "text" ]] && echo "${GREEN}${ICON_OK} No obvious outdated packages reported.${RESET}"
+    fi
+  fi
+}
+
+category_15_exception_handling() {
+  local cat=15
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+  local tmp="$TMP_DIR/cat15.txt"
+  local hits=0
+
+  # throw ex;
+search '\bthrow\s+[A-Za-z_][A-Za-z0-9_]*\s*;' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} 'throw ex;' pattern ($hits) - resets stack trace, use 'throw;'${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "throw ex" "throw ex;" "warning" "$cat" || true
+  fi
+
+  # empty catch
+search 'catch\s*\([^)]*\)\s*\{\s*\}' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} Empty catch blocks ($hits) - exceptions swallowed${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "empty catch" "catch(...) { }" "warning" "$cat" || true
+  fi
+
+  # catch (Exception) blocks
+search 'catch\s*\(\s*Exception\b[^)]*\)\s*\{' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter info "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} catch(Exception ...) blocks ($hits) - ensure you handle/log appropriately${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "catch(Exception)" "catch(Exception" "info" "$cat" || true
+  fi
+}
+
+category_16_aspnet_web() {
+  local cat=16
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+  local tmp="$TMP_DIR/cat16.txt"
+  local hits=0
+
+  # CORS AllowAnyOrigin
+search 'AllowAnyOrigin\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} AllowAnyOrigin() ($hits) - verify this is intended; can expose APIs to browsers${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "AllowAnyOrigin" "AllowAnyOrigin" "warning" "$cat" || true
+  fi
+
+  # UseDeveloperExceptionPage
+search 'UseDeveloperExceptionPage\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} UseDeveloperExceptionPage() ($hits) - ensure only enabled in Development${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "UseDeveloperExceptionPage" "UseDeveloperExceptionPage" "warning" "$cat" || true
+  fi
+}
+
+category_17_ast_grep_pack() {
+  local cat=17
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+  if [[ "$HAS_AST_GREP" -eq 0 ]]; then
+    [[ "$FORMAT" == "text" ]] && echo "${DIM}ast-grep not available (install ast-grep, or ensure 'sg' is ast-grep).${RESET}"
+    return 0
+  fi
+
+  write_ast_rules
+  [[ "$FORMAT" == "text" ]] && echo "${GREEN}${ICON_OK} ast-grep configured (language: cs). Use --format=sarif for SARIF output.${RESET}"
+
+  # Quick sanity: stream a few findings
+  local s
+  s="$(ast_scan_json_stream | head -n 200 | count_lines)"
+  if [[ "$FORMAT" == "text" ]]; then
+    if [[ "$s" -gt 0 ]]; then
+      bump_counter info 1
+      echo "${CYAN}${ICON_INFO} ast-grep produced matches (sampled). Use --format=sarif for full details.${RESET}"
+    else
+      echo "${DIM}ast-grep scan produced no quick matches (or output suppressed).${RESET}"
+    fi
+  fi
+}
+
+category_18_inventory() {
+  local cat=18
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+
+  local sln_count csproj_count
+  sln_count=$(find "$PROJECT_DIR" -maxdepth 3 -name '*.sln' 2>/dev/null | wc -l | awk '{print $1+0}')
+  csproj_count=$(find "$PROJECT_DIR" -maxdepth 3 -name '*.csproj' 2>/dev/null | wc -l | awk '{print $1+0}')
+  local tfm_hits
+  local tmp="$TMP_DIR/cat18.tfm.txt"
+  search '<TargetFramework' "$tmp"
+  tfm_hits=$(cat "$tmp" | count_lines)
+
+  bump_counter info 1
+  add_finding "info" "$cat" "Inventory: solutions=$sln_count projects=$csproj_count tfm_tags=$tfm_hits files=$TOTAL_FILES" "" 0 ""
+  [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} Solutions: $sln_count, Projects: $csproj_count, TargetFramework tags: $tfm_hits, C# files scanned: $TOTAL_FILES${RESET}"
+}
+
+# Resource lifecycle correlation similar to Rust scanner
+category_19_resource_lifecycle() {
+  local cat=19
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+
+  if [[ "$HAS_PYTHON" -eq 0 ]]; then
+    [[ "$FORMAT" == "text" ]] && echo "${DIM}python3 not found; lifecycle correlation reduced (skipping).${RESET}"
+    return 0
+  fi
+
+  local report="$TMP_DIR/cat19.lifecycle.txt"
+  python3 - "$FILELIST_NUL" "$report" <<'PY' 2>/dev/null || true
+import sys, re
+nul_list=sys.argv[1]
+out=sys.argv[2]
+
+acquires = [
+  ("CancellationTokenSource", re.compile(r'new\s+CancellationTokenSource\s*\('), re.compile(r'\.Dispose\s*\(')),
+  ("Timer", re.compile(r'new\s+Timer\s*\('), re.compile(r'\.Dispose\s*\(')),
+  ("HttpClient", re.compile(r'new\s+HttpClient\s*\('), re.compile(r'\.Dispose\s*\(')),
+]
+def load_files():
+  data=open(nul_list,'rb').read().split(b'\0')
+  return [b.decode('utf-8','ignore') for b in data if b]
+
+findings=[]
+for path in load_files():
+  try:
+    txt=open(path,'r',encoding='utf-8',errors='ignore').read()
+  except Exception:
+    continue
+  for name, acq, rel in acquires:
+    acq_hits=[]
+    for m in acq.finditer(txt):
+      window=txt[max(0,m.start()-40):m.start()+40]
+      if 'using' in window:
+        continue
+      acq_hits.append(m.start())
+    if not acq_hits:
+      continue
+    rel_hits=len(list(rel.finditer(txt)))
+    if len(acq_hits) > rel_hits:
+      findings.append((path,name,len(acq_hits),rel_hits))
+with open(out,'w',encoding='utf-8') as f:
+  for path,name,a,r in findings:
+    f.write(f"{path}:0:{name} acquired {a}x but Dispose() seen {r}x (heuristic)\n")
+PY
+
+  local hits
+  hits=$(cat "$report" | count_lines)
+  if [[ "$hits" -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} Potential resource lifecycle imbalances (heuristic): $hits${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$report" | print_matches "Resource lifecycle imbalance" "Dispose mismatch" "warning" "$cat" || true
+  else
+    [[ "$FORMAT" == "text" ]] && echo "${GREEN}${ICON_OK} No obvious per-file lifecycle imbalances detected (heuristic).${RESET}"
+  fi
+}
+
+category_20_async_locks() {
+  local cat=20
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+  local tmp="$TMP_DIR/cat20.lock.txt"
+  local hits=0
+
+search '\block\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ "$hits" -gt 0 ]]; then
+    local await_file="$TMP_DIR/cat20.await.txt"
+    search '\bawait\b' "$await_file"
+    local await_hits
+    await_hits=$(cat "$await_file" | count_lines)
+    if [[ "$await_hits" -gt 0 ]]; then
+      bump_counter warning "$hits"
+      [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} lock(...) used in files that also use await ($hits lock sites) - ensure you never await while holding a lock${RESET}"
+      [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "lock in async code" "lock(" "warning" "$cat" || true
+    else
+      [[ "$FORMAT" == "text" ]] && echo "${DIM}lock(...) found, but no 'await' tokens in scan scope (skipping).${RESET}"
+    fi
+  fi
+
+  # SemaphoreSlim.Wait() in async code (should prefer WaitAsync)
+  local tmp2="$TMP_DIR/cat20.sem.txt"
+search '\bSemaphoreSlim\b.*\.Wait\s*\(' "$tmp2"
+  hits=$(cat "$tmp2" | count_lines)
+  if [[ "$hits" -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} SemaphoreSlim.Wait() ($hits) - blocks; prefer WaitAsync with await${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp2" | print_matches "SemaphoreSlim.Wait" "Wait(" "warning" "$cat" || true
+  fi
+}
+
+category_21_exception_surfaces() {
+  local cat=21
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+  local tmp="$TMP_DIR/cat21.txt"
+  local hits=0
+
+  # catch { }
+search 'catch\s*\{\s*\}' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ "$hits" -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} catch { } blocks ($hits) - catches all exceptions; ensure logging/rethrow${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "catch { }" "catch { }" "warning" "$cat" || true
+  fi
+
+  # throwing new exception in catch blocks (heuristic)
+search 'catch\s*\([^)]*\)\s*\{[^}]*throw\s+new\s+[A-Za-z_][A-Za-z0-9_]*Exception\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ "$hits" -gt 0 ]]; then
+    bump_counter info "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} catch ... throw new ...Exception(...) ($hits) - ensure you preserve original exception as InnerException${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "throw new Exception in catch" "throw new" "info" "$cat" || true
+  fi
+}
+
+category_22_casts_truncation() {
+  local cat=22
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+  local tmp="$TMP_DIR/cat22.txt"
+  local hits=0
+
+  # unchecked keyword
+search '\bunchecked\s*\{' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ "$hits" -gt 0 ]]; then
+    bump_counter info "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} unchecked { ... } blocks ($hits) - overflow intentionally ignored; review${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "unchecked" "unchecked" "info" "$cat" || true
+  fi
+
+  # Convert.ToInt32
+search '\bConvert\.ToInt32\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ "$hits" -gt 0 ]]; then
+    bump_counter info "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} Convert.ToInt32(...) ($hits) - may throw/overflow; ensure bounds checks${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "Convert.ToInt32" "Convert.ToInt32" "info" "$cat" || true
+  fi
+}
+
+category_23_parsing_validation() {
+  local cat=23
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+  local tmp="$TMP_DIR/cat23.txt"
+  local hits=0
+
+  # Parse without TryParse
+search '\b(int|long|double|decimal|DateTime|Guid)\.Parse\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ "$hits" -gt 0 ]]; then
+    bump_counter warning "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} .Parse(...) calls ($hits) - can throw; prefer TryParse on untrusted input${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "Parse without TryParse" ".Parse(" "warning" "$cat" || true
+  fi
+}
+
+category_24_perf_dos() {
+  local cat=24
+  category_enabled "$cat" || return 0
+  [[ "$FORMAT" == "text" ]] && echo "" && echo "${BOLD}[$cat] ${CATEGORY_NAMES[$cat]}${RESET}"
+  local tmp="$TMP_DIR/cat24.txt"
+  local hits=0
+
+  # new Regex inside code (heuristic)
+search '\bnew\s+Regex\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ "$hits" -gt 0 ]]; then
+    bump_counter info "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} new Regex(...) ($hits) - consider RegexOptions.Compiled/static caching; beware ReDoS with untrusted patterns${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "new Regex" "new Regex" "info" "$cat" || true
+  fi
+
+  # LINQ in loops (very heuristic)
+search '\b(for|foreach|while)\b.*\.(Select|Where|OrderBy|GroupBy)\s*\(' "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ "$hits" -gt 0 ]]; then
+    bump_counter info "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} LINQ in loops ($hits) - potential perf hotspots; consider hoisting/optimizing${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "LINQ in loops" "Select(" "info" "$cat" || true
+  fi
+}
+
+# ---------- main ----------
+main() {
+  parse_args "$@"
+  init_colors
+  TMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t ubs_csharp)"
+  detect_tools
+  detect_ast_grep_style
+  banner
+
+  if [[ "$FORMAT" == "text" ]]; then
+    echo "${DIM}Project: $PROJECT_DIR${RESET}"
+    note "Tools: rg=$HAS_RG ast-grep=$HAS_AST_GREP dotnet=$HAS_DOTNET python3=$HAS_PYTHON"
+    [[ "$STRICT_GITIGNORE" -eq 1 ]] && note "Strict .gitignore: ON" || note "Strict .gitignore: OFF (scanning beyond .gitignore)"
+  fi
+
+  count_project_files
+
+  # Run categories
+  category_1_exceptions_nullability
+  category_2_resources_idisposable
+  category_3_concurrency_async
+  category_4_numeric_fp
+  category_5_collections_linq
+  category_6_strings_alloc
+  category_7_io_process
+  category_8_security
+  category_9_quality_markers
+  category_10_api_misuse
+  category_11_tests_debug
+  category_12_format_analyzers
+  category_13_build_test
+  category_14_deps_nuget
+  category_15_exception_handling
+  category_16_aspnet_web
+  category_17_ast_grep_pack
+  category_18_inventory
+  category_19_resource_lifecycle
+  category_20_async_locks
+  category_21_exception_surfaces
+  category_22_casts_truncation
+  category_23_parsing_validation
+  category_24_perf_dos
+
+  # Decide exit code
+  EXIT_CODE=0
+  if [[ -n "$FAIL_CRITICAL_N" ]]; then
+    if [[ "$CRITICAL_FINDINGS" -ge "$FAIL_CRITICAL_N" ]]; then EXIT_CODE=1; fi
+  elif [[ "$CRITICAL_FINDINGS" -gt 0 ]]; then
+    EXIT_CODE=1
+  fi
+
+  if [[ -n "$FAIL_WARNING_N" ]]; then
+    if [[ "$WARNING_FINDINGS" -ge "$FAIL_WARNING_N" ]]; then EXIT_CODE=1; fi
+  elif [[ "$FAIL_ON_WARNING" -eq 1 && "$WARNING_FINDINGS" -gt 0 ]]; then
+    EXIT_CODE=1
+  fi
+
+  if [[ "$FORMAT" == "text" ]]; then
+    echo ""
+    echo "${BOLD}Summary Statistics:${RESET}"
+    echo "  Files scanned: $TOTAL_FILES"
+    echo "  Critical issues: $CRITICAL_FINDINGS"
+    echo "  Warning issues: $WARNING_FINDINGS"
+    echo "  Info items: $INFO_FINDINGS"
+    echo "  Exit code    : $EXIT_CODE"
+    if [[ "$HAS_AST_GREP" -eq 1 ]]; then
+      echo "${DIM}Tip: run with --format=sarif to generate SARIF from ast-grep rules.${RESET}"
+    fi
+  fi
+
+  # Outputs
+  if [[ -n "$EMIT_FINDINGS_JSON" ]]; then
+    emit_findings_json "$EMIT_FINDINGS_JSON"
+    [[ "$FORMAT" == "text" ]] && ok "Wrote findings JSON: $EMIT_FINDINGS_JSON"
+  fi
+  if [[ -n "$SUMMARY_JSON" ]]; then
+    emit_summary_json >"$SUMMARY_JSON"
+    [[ "$FORMAT" == "text" ]] && ok "Wrote summary JSON: $SUMMARY_JSON"
+  fi
+
+  if [[ "$FORMAT" == "json" ]]; then
+    emit_summary_json
+  elif [[ "$FORMAT" == "sarif" ]]; then
+    emit_sarif
+  fi
+
+  exit "$EXIT_CODE"
+}
+
+main "$@"

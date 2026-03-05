@@ -9,6 +9,7 @@ modules=(
   "modules/ubs-java.sh:Java"
   "modules/ubs-ruby.sh:Ruby"
   "modules/ubs-swift.sh:Swift"
+  "modules/ubs-csharp.sh:C#"
 )
 for entry in "${modules[@]}"; do
   file="${entry%%:*}"

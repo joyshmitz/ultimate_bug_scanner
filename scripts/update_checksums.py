@@ -44,6 +44,7 @@ def main():
         "js": "ubs-js.sh",
         "python": "ubs-python.sh",
         "cpp": "ubs-cpp.sh",
+        "csharp": "ubs-csharp.sh",
         "rust": "ubs-rust.sh",
         "golang": "ubs-golang.sh",
         "java": "ubs-java.sh",

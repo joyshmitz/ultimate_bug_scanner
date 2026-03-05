@@ -6,9 +6,9 @@ shopt -s lastpipe 2>/dev/null || true
 # Ultimate Bug Scanner - Installation Script
 # https://github.com/Dicklesworthstone/ultimate_bug_scanner
 
-# Always present latest master version to users; actual binary will be fetched
-# from master branch (not releases). VERSION is cosmetic only.
-VERSION_DEFAULT="master"
+# Always present latest main version to users; actual binary will be fetched
+# from main branch (not releases). VERSION is cosmetic only.
+VERSION_DEFAULT="main"
 
 # Handle case when script is piped (BASH_SOURCE[0] not set)
 if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
@@ -19,7 +19,7 @@ else
 fi
 SCRIPT_NAME="ubs"
 INSTALL_NAME="ubs"
-REPO_URL="https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/master"
+REPO_URL="https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main"
 ARTIFACT_BASE_DEFAULT="https://github.com/Dicklesworthstone/ultimate_bug_scanner/releases/download/v${VERSION}"
 ARTIFACT_BASE="${UBS_ARTIFACT_BASE:-$ARTIFACT_BASE_DEFAULT}"
 MINISIGN_PUBKEY="${UBS_MINISIGN_PUBKEY:-}"  # Set to minisign public key line (untrusted placeholder fails closed)
@@ -2510,7 +2510,7 @@ install_scanner() {
       return 1
     fi
   else
-      log "Downloading from GitHub master..."
+      log "Downloading from GitHub main..."
 
       # Append cache-buster so users never get stale CDN copies
       local cache_buster="$(date +%s)"
@@ -2526,9 +2526,9 @@ install_scanner() {
         return 1
       fi
 
-      # Always verify against master checksums unless --insecure
+      # Always verify against main checksums unless --insecure
       if [ "$RUN_VERIFICATION" -eq 1 ] && [ "$INSECURE" -eq 0 ]; then
-        log "Verifying checksum against master..."
+        log "Verifying checksum against main..."
         if download_to_file "$sums_url" "$sums_file"; then
           local expected_sum
           expected_sum=$(grep "  ${SCRIPT_NAME}$" "$sums_file" | awk '{print $1}') || true
@@ -2554,7 +2554,7 @@ install_scanner() {
             return 1
           fi
         else
-          error "Could not download SHA256SUMS from master"
+          error "Could not download SHA256SUMS from main"
           rm -f "$temp_path"
           return 1
         fi
@@ -2784,9 +2784,9 @@ setup_claude_code_hook() {
   cat > "$hook_file" << 'HOOK_EOF'
 #!/bin/bash
 # Ultimate Bug Scanner - Claude Code Hook
-# Runs on every file save for UBS-supported languages (JS/TS, Python, C/C++, Rust, Go, Java, Ruby)
+# Runs on every file save for UBS-supported languages (JS/TS, Python, C/C++, Rust, Go, Java, Ruby, Swift, C#)
 
-if [[ "$FILE_PATH" =~ \.(js|jsx|ts|tsx|mjs|cjs|py|pyw|pyi|c|cc|cpp|cxx|h|hh|hpp|hxx|rs|go|java|rb)$ ]]; then
+if [[ "$FILE_PATH" =~ \.(js|jsx|ts|tsx|mjs|cjs|py|pyw|pyi|c|cc|cpp|cxx|h|hh|hpp|hxx|rs|go|java|rb|cs|csx)$ ]]; then
   echo "🔬 Running bug scanner..."
   if ! command -v ubs >/dev/null 2>&1; then
     echo "⚠️  'ubs' not found in PATH; install it before using this hook." >&2
@@ -2949,7 +2949,7 @@ Before suggesting code changes or completing implementations, ensure:
 
 ## Integration
 
-UBS detects 1000+ bug patterns across JavaScript/TypeScript, Python, C/C++, Rust, Go, Java, and Ruby.
+UBS detects 1000+ bug patterns across JavaScript/TypeScript, Python, C/C++, Rust, Go, Java, Ruby, Swift, and C#.
 COPILOT
     success "Created Copilot instructions: $copilot_file"
   else
@@ -3083,7 +3083,7 @@ cat <<'QUICK_REF'
 
 UBS stands for "Ultimate Bug Scanner": **The AI Coding Agent's Secret Weapon: Flagging Likely Bugs for Fixing Early On**
 
-**Install:** `curl -sSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/master/install.sh | bash`
+**Install:** `curl -sSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/install.sh | bash`
 
 **Golden Rule:** `ubs <changed-files>` before every commit. Exit 0 = safe. Exit >0 = fix & re-run.
 

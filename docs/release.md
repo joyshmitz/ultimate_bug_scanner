@@ -4,7 +4,7 @@ This playbook documents how to cut and publish a signed UBS release. The release
 
 ## Prerequisites
 
-- Maintainer with push rights to `master` and tags.
+- Maintainer with push rights to `main` and tags.
 - `MINISIGN_SECRET_KEY` stored as an org/repo secret (base64 of the minisign secret key). The matching public key is published for users (see `docs/security.md`).
 - OIDC-enabled GitHub Actions (default) for keyless Cosign signing.
 - GHCR write access (uses `${GITHUB_REPOSITORY_OWNER,,}/ubs-tools`).
@@ -28,7 +28,7 @@ This playbook documents how to cut and publish a signed UBS release. The release
    ```bash
    git commit -am "chore: bump version to 5.1.0"
    git tag v5.1.0
-   git push origin master --tags
+   git push origin main --tags
    ```
 3. **Workflow runs automatically** on the pushed tag:
    - `nix-check`: runs `nix flake check` for determinism.

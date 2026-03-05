@@ -14,8 +14,8 @@
 <div align="center">
 
 ```bash
-# One command to catch 1000+ bug patterns (always master, cache-busted)
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/master/install.sh?$(date +%s)" \
+# One command to catch 1000+ bug patterns (always main, cache-busted)
+curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/install.sh?$(date +%s)" \
   | bash -s --
 ```
 
@@ -34,7 +34,7 @@ Just want it to do everything without confirmations? Live life on the edge with 
 <div align="center">
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/master/install.sh?$(date +%s)" \
+curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/install.sh?$(date +%s)" \
   | bash -s -- --easy-mode
 ```
 
@@ -102,7 +102,7 @@ const zipCode = parseInt(userInput);  // 💥 "08" becomes 0 in old browsers (oc
 ## 🎯 **The Solution: Your 24/7 Bug Hunting Partner**
 
 ### 🧠 Language-Aware Meta-Runner
-- `ubs` auto-detects **JavaScript/TypeScript, Python, C/C++, Rust, Go, Java, Ruby, and Swift** in the same repo and fans out to per-language scanners.
+- `ubs` auto-detects **JavaScript/TypeScript, Python, C/C++, Rust, Go, Java, Ruby, Swift, and C#** in the same repo and fans out to per-language scanners.
 - Each scanner lives under `modules/ubs-<lang>.sh`, ships independently, and supports `--format text|json|jsonl|sarif|toon` for consistent downstream tooling.
 - Modules download lazily (PATH → repo `modules/` → cached under `${XDG_DATA_HOME:-$HOME/.local/share}/ubs/modules`) and are validated before execution.
 - Results from every language merge into one text/JSON/SARIF report via `jq`, so CI systems and AI agents only have to parse a single artifact.
@@ -218,14 +218,14 @@ scoop install dicklesworthstone/ubs
 ### **Alternative: Automated Install**
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/master/install.sh?$(date +%s)" | bash
+curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/install.sh?$(date +%s)" | bash
 ```
 
 ### **Option 2: Integrity-first install (signed checksums)**
 
 ```bash
 export UBS_MINISIGN_PUBKEY="RWQg+jMrKiloMT5L3URISMoRzCMc/pVcVRCTfuY+WIzttzIr4CUJYRUk"
-curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/master/scripts/verify.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/scripts/verify.sh | bash
 ```
 
 The verifier downloads `SHA256SUMS` + `SHA256SUMS.minisig` from the matching release, validates them with minisign, checks `install.sh`, and only then executes it. Use `--insecure` to bypass verification (not recommended).
@@ -283,7 +283,7 @@ Need to revisit what the installer discovered later? Run `ubs sessions --entries
 Need the “just make it work” button? Run the installer with `--easy-mode` to auto-install every dependency, accept all prompts, detect local coding agents, and wire their quality guardrails with zero extra questions:
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/master/install.sh?$(date +%s)" \
+curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/install.sh?$(date +%s)" \
   | bash -s -- --easy-mode
 ```
 
@@ -295,7 +295,7 @@ Need to keep your shell RC files untouched? Combine `--no-path-modify` (and opti
 
 ```bash
 # Download and install the unified runner
-curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/master/ubs \
+curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/ubs \
   -o /usr/local/bin/ubs && chmod +x /usr/local/bin/ubs
 
 # Verify it works
@@ -313,7 +313,7 @@ npm install -g typescript        # Enables full tsserver-based type narrowing ch
 
 ```bash
 # Download once
-curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/master/ubs \
+curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/ubs \
   -o ubs && chmod +x ubs
 
 # Run it
@@ -327,7 +327,7 @@ curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scan
 Run the installer in `--uninstall` mode via curl if you want to remove UBS and all of its integrations:
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/master/install.sh?$(date +%s)" | bash -s -- --uninstall --non-interactive
+curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/install.sh?$(date +%s)" | bash -s -- --uninstall --non-interactive
 ```
 
 This command deletes the UBS binary, shell RC snippets/aliases, config under `~/.config/ubs`, and the optional Claude/Git hooks that the installer set up. Because it passes `--non-interactive`, it auto-confirms all prompts and runs unattended.
@@ -594,9 +594,9 @@ Drop this into `.claude/hooks/on-file-write.sh`:
 
 ```bash
 #!/bin/bash
-# Auto-scan UBS-supported languages (JS/TS, Python, C/C++, Rust, Go, Java, Ruby) on save
+# Auto-scan UBS-supported languages (JS/TS, Python, C/C++, Rust, Go, Java, Ruby, Swift, C#) on save
 
-if [[ "$FILE_PATH" =~ \.(js|jsx|ts|tsx|mjs|cjs|py|pyw|pyi|c|cc|cpp|cxx|h|hh|hpp|hxx|rs|go|java|rb)$ ]]; then
+if [[ "$FILE_PATH" =~ \.(js|jsx|ts|tsx|mjs|cjs|py|pyw|pyi|c|cc|cpp|cxx|h|hh|hpp|hxx|rs|go|java|rb|cs|csx)$ ]]; then
   echo "🔬 Quality check running..."
 
   if ubs "${PROJECT_DIR}" --ci 2>&1 | head -30; then
@@ -667,7 +667,7 @@ jobs:
 
       - name: Install Bug Scanner
         run: |
-          curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/master/install.sh?$(date +%s)" | bash -s -- --non-interactive
+          curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/install.sh?$(date +%s)" | bash -s -- --non-interactive
 
       - name: Scan for Bugs
         run: |
@@ -757,7 +757,7 @@ Critical issues found? ────┤ YES
 
 UBS stands for "Ultimate Bug Scanner": **The AI Coding Agent's Secret Weapon: Flagging Likely Bugs for Fixing Early On**
 
-**Install:** `curl -sSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/master/install.sh | bash`
+**Install:** `curl -sSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/install.sh | bash`
 
 **Golden Rule:** `ubs <changed-files>` before every commit. Exit 0 = safe. Exit >0 = fix & re-run.
 
@@ -970,7 +970,7 @@ File Selection:
   --include-ext=CSV        File extensions (default: auto-detect by language)
                            JS: js,jsx,ts,tsx,mjs,cjs | Python: py,pyi,pyx
                            Go: go | Rust: rs | Java: java | C++: cpp,cc,cxx,c,h
-                           Ruby: rb,rake,ru | Custom: --include-ext=js,ts,vue
+                           Ruby: rb,rake,ru | C#: cs,csx | Custom: --include-ext=js,ts,vue
   --exclude=GLOB[,...]     Additional paths to exclude (comma-separated)
                            Example: --exclude=legacy (deps ignored by default)
   --skip-size-check        Skip directory size guard (use with care)
@@ -1274,7 +1274,7 @@ eval(safe_string)  # ubs:ignore
 
 **Suppression Rules:**
 - Must appear on the **same line** as the flagged code
-- Works across all 8 supported languages
+- Works across all 9 supported languages
 - Suppresses all findings on that line (use sparingly)
 - Survives formatting tools that preserve trailing comments
 
@@ -1290,7 +1290,7 @@ eval(code);  // Still flagged!
 
 ### **Cross-Language Async Error Detection**
 
-UBS detects unhandled async errors consistently across all 8 languages. The patterns adapt to each language's idioms while providing equivalent coverage:
+UBS detects unhandled async errors consistently across all 9 languages. The patterns adapt to each language's idioms while providing equivalent coverage:
 
 | Language | Pattern | What UBS Detects |
 |----------|---------|------------------|
@@ -1302,6 +1302,7 @@ UBS detects unhandled async errors consistently across all 8 languages. The patt
 | **Ruby** | `Thread.new` without `.join` | Zombie threads, unhandled thread exceptions |
 | **C++** | `std::async` without `.get()` | Ignored futures, exception propagation |
 | **Swift** | `Task {}` without error handling | Unstructured concurrency leaks |
+| **C#** | `Task.Wait()` / `.Result` / `throw ex;` | Sync-over-async deadlocks, stack-trace loss, unsafe exception surfaces |
 
 **JavaScript Promise Chain Analysis:**
 
@@ -1361,7 +1362,7 @@ If a helper is modified or corrupted, the scanner fails safely with remediation 
 
 ### **Unified Severity Normalization**
 
-All 8 language modules normalize their findings to a consistent severity scale, ensuring predictable output regardless of source language:
+All 9 language modules normalize their findings to a consistent severity scale, ensuring predictable output regardless of source language:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -1510,7 +1511,7 @@ Traditional linters were designed for **human developers** in **single-language 
 
 | Traditional Linting (Human-First) | UBS Approach (LLM-First) |
 |---|---|
-| **Goal:** Comprehensive coverage + auto-fix<br>**Speed:** 15-60 seconds acceptable<br>**Setup:** 30 min config per language<br>**Languages:** One tool per language<br>**False positives:** Must be <1% (frustrates humans)<br>**Output:** Human-readable prose | **Goal:** Critical bug detection + fast feedback<br>**Speed:** <5 seconds required<br>**Setup:** Zero config (instant start)<br>**Languages:** One scan for all 8 languages<br>**False positives:** 10-20% OK (LLMs filter instantly)<br>**Output:** Structured file:line for LLM parsing |
+| **Goal:** Comprehensive coverage + auto-fix<br>**Speed:** 15-60 seconds acceptable<br>**Setup:** 30 min config per language<br>**Languages:** One tool per language<br>**False positives:** Must be <1% (frustrates humans)<br>**Output:** Human-readable prose | **Goal:** Critical bug detection + fast feedback<br>**Speed:** <5 seconds required<br>**Setup:** Zero config (instant start)<br>**Languages:** One scan for all 9 languages<br>**False positives:** 10-20% OK (LLMs filter instantly)<br>**Output:** Structured file:line for LLM parsing |
 
 ### **2. LLMs Don't Need Auto-Fix—They ARE the Auto-Fix Engine**
 
@@ -1580,7 +1581,7 @@ pip install pylint black mypy
 curl -fsSL https://raw.githubusercontent.com/.../install.sh | bash
 ubs .
 
-# Done. All 8 languages scanned, unified report.
+# Done. All 9 languages scanned, unified report.
 ```
 
 **This matters because:**
@@ -1600,7 +1601,7 @@ ubs .
 
 - **Python** – `modules/helpers/resource_lifecycle_py.py` now reasons over the AST, tracking `with`/`async with`, alias imports, and `.open()`/`.connect()` calls so `ubs-python` warns only when a handle is truly leaking. Pathlib `Path.open()` and similar patterns are handled without brittle regexes.
 - **Java** – New ast-grep rules (`java.resource.executor-no-shutdown`, `java.resource.thread-no-join`, `java.resource.jdbc-no-close`, `java.resource.resultset-no-close`, `java.resource.statement-no-close`) ensure ExecutorServices, raw `Thread`s, `java.sql.Connection`s, `Statement`/`PreparedStatement`/`CallableStatement`, and `ResultSet` handles all get proper shutdown/close semantics before the regex fallback ever runs.
-- **C++ / Rust / Ruby** – These modules already relied on ast-grep rule packs; the “Universal AST Adoption” epic is now complete with every language module (JS, Python, Go, C++, Rust, Java, Ruby, Swift, Kotlin) running semantic detectors instead of fragile grep-only heuristics.
+- **C++ / Rust / Ruby** – These modules already relied on ast-grep rule packs; the “Universal AST Adoption” epic is now complete with every language module (JS, Python, Go, C++, Rust, Java, Ruby, Swift, C#) running semantic detectors instead of fragile grep-only heuristics.
 
 #### Python – AST helper in action
 
@@ -1783,7 +1784,7 @@ Layer 4: Metrics collection  → Time-series quality tracking
 **This combination of speed + semantic understanding + correlation is unique.**
 
 **Unified multi-language runner:**
-- Auto-detects 8 languages in one scan
+- Auto-detects 9 languages in one scan
 - Parallel execution (Go + Python + Rust simultaneously)
 - Unified JSON/SARIF output for tooling
 - Module system with lazy download/caching
@@ -1914,7 +1915,7 @@ You wouldn't use a truck for a Formula 1 race. You wouldn't use a sports car to 
 These are fundamentally incompatible goals. ESLint would never accept "10-20% false positives are fine" or "skip auto-fix entirely."
 
 **2. Multi-language meta-runner**
-- The unified runner that auto-detects 8 languages is the core innovation
+- The unified runner that auto-detects 9 languages is the core innovation
 - This doesn't fit into any single linter's architecture
 - Each linter project has different maintainers, philosophies, release cycles
 
@@ -2077,7 +2078,7 @@ Use both.
 
 **A:** Probably! The module system makes it easy to add languages.
 
-**Current:** JavaScript/TypeScript, Python, Go, Rust, Java, C++, Ruby, Swift (8 languages)
+**Current:** JavaScript/TypeScript, Python, Go, Rust, Java, C++, Ruby, Swift, C# (9 languages)
 
 **Roadmap considerations:**
 - **PHP** - High demand, lots of legacy code
@@ -2119,7 +2120,7 @@ But the core tool will always be free and open source.
 
 **This isn't trying to replace ESLint.** It's solving a different problem:
 
-> **"How do I give LLM coding agents the ability to self-audit across 8 languages with zero configuration overhead and sub-5-second feedback?"**
+> **"How do I give LLM coding agents the ability to self-audit across 9 languages with zero configuration overhead and sub-5-second feedback?"**
 
 No existing tool does this because:
 - Traditional linters are human-first (need auto-fix, low FP tolerance)
@@ -2190,25 +2191,25 @@ coverage/
 
 ## 🧭 **Language Coverage Comparison**
 
-UBS ships seven language-focused analyzers. Each category below is scored using the following scale:
+UBS ships nine language-focused analyzers. The comparison below focuses on the longest-standing modules; Swift is called out separately where relevant. Each category below is scored using the following scale:
 
 - **0 – Not covered**
 - **1 – Simple heuristics/regex only**
 - **2 – Multi-signal/static heuristics (context-aware passes)**
 - **3 – Deep analysis (AST-grep rule packs, taint/dataflow engines, or toolchain integrations such as `cargo clippy`)**
 
-| Issue Category | JS / TS | Python | Go | C / C++ | Rust | Java | Ruby |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Null / Nil Safety | **2** – DOM guard & optional-chaining heuristics (cat.1) | **2** – `None` guard + dataclass fallbacks | **1** – Basic nil/pointer guards | **2** – Raw pointer/nullptr/RAII checks | **3** – Borrow/Option misuse via clippy + rules | **2** – Optional/null equality audits | **1** – Nil guard reminders |
-| Numeric & Type Coercion | **2** – NaN/loose equality/float equality (cat.2/4) | **2** – Division-by-zero & float precision | **1** – Limited arithmetic heuristics | **2** – UB risk & narrowing warnings | **2** – Float/overflow watchers (cat.4) | **1** – Basic comparisons only | **1** – Simple arithmetic foot-guns |
-| Collections & Memory | **2** – Array mutation/leak detectors | **2** – Dict/list iteration pitfalls | **1** – Slice/map heuristics | **3** – malloc/free, iterator invalidation, UB (cat.1/5/7) | **2** – Vec/String/iterator audits | **2** – Collections & generics misuse | **1** – Enumerator/default mutability hints |
-| Async / Concurrency | **3** – AST-grep + fallback for missing `await`, React hooks dep analyzer | **2** – Async/Await pitfall scans | **3** – Goroutine/channel/context/defer hygiene | **2** – `std::thread` join + `std::async` wait tracking | **2** – Async macros, Send/Sync checks | **2** – ExecutorService shutdown, `synchronized` monitors | **1** – Basic thread/promise hints |
-| Error Handling & Logging | **2** – Promise rejection / try–catch auditing | **2** – Exception swallow/logging checks | **2** – Error wrapping, panic usage | **2** – Throw-in-dtor, catch-by-value | **2** – Result/expect/panic usage | **2** – Logging best practices, try-with-resources | **1** – Rescue/raise heuristics |
-| Security & Taint | **3** – Lightweight taint engine + security heuristics (cat.7) | **2** – Eval/exec/SQL string heuristics | **2** – HTTP/crypto/command checks | **1** – Limited dedicated security (mostly UB) | **2** – Security category (cat.8) | **3** – SQL concat, `Runtime.exec`, SSL/crypto checks | **2** – Rails mass-assignment, shell/eval warnings |
-| Resource Lifecycle & I/O | **3** – AST event-listener/timer/observer tracking + heuristics | **2** – Context-manager & file lifecycle hints | **2** – `defer`/file close + HTTP resource hygiene | **2** – Thread join/malloc/free & resource correlation | **2** – Drop/RAII heuristics + correlation | **3** – Executor/file stream cleanup detections | **2** – File open/close + block usage hints |
-| Build / Tooling Hygiene | **0** – Not covered yet | **2** – `uv` extras, packaging, notebook hygiene | **2** – Go toolchain sanity (`go vet`, module drift) | **1** – CMake/CXX standard reminders | **3** – `cargo fmt/clippy/test/check` integrations | **2** – Maven/Gradle best-effort builds | **2** – Bundler/Rake/AST rule packs |
-| Code Quality Markers | **1** – TODO/HACK detectors | **1** | **1** | **1** | **1** | **1** | **1** |
-| Domain-Specific Extras | **3** – React hooks, Node I/O, taint flows | **2** – Typing strictness, notebook linting | **2** – Context propagation, HTTP server/client reviews | **2** – Modernization, macro/STL idioms | **3** – Unsafe/FFI audits, cargo inventory | **3** – SQL/Executor/annotation/path handling | **2** – Rails practicals, bundle hygiene |
+| Issue Category | JS / TS | Python | Go | C / C++ | Rust | Java | Ruby | C# |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Null / Nil Safety | **2** – DOM guard & optional-chaining heuristics (cat.1) | **2** – `None` guard + dataclass fallbacks | **1** – Basic nil/pointer guards | **2** – Raw pointer/nullptr/RAII checks | **3** – Borrow/Option misuse via clippy + rules | **2** – Optional/null equality audits | **1** – Nil guard reminders | **2** – Nullability pragmas, `!` operator, exception/null heuristics |
+| Numeric & Type Coercion | **2** – NaN/loose equality/float equality (cat.2/4) | **2** – Division-by-zero & float precision | **1** – Limited arithmetic heuristics | **2** – UB risk & narrowing warnings | **2** – Float/overflow watchers (cat.4) | **1** – Basic comparisons only | **1** – Simple arithmetic foot-guns | **2** – FP equality, truncation casts, parse/validation heuristics |
+| Collections & Memory | **2** – Array mutation/leak detectors | **2** – Dict/list iteration pitfalls | **1** – Slice/map heuristics | **3** – malloc/free, iterator invalidation, UB (cat.1/5/7) | **2** – Vec/String/iterator audits | **2** – Collections & generics misuse | **1** – Enumerator/default mutability hints | **2** – LINQ `.First()` / `.Count()>0` / allocation smells |
+| Async / Concurrency | **3** – AST-grep + fallback for missing `await`, React hooks dep analyzer | **2** – Async/Await pitfall scans | **3** – Goroutine/channel/context/defer hygiene | **2** – `std::thread` join + `std::async` wait tracking | **2** – Async macros, Send/Sync checks | **2** – ExecutorService shutdown, `synchronized` monitors | **1** – Basic thread/promise hints | **2** – `Task.Wait`, `.Result`, `async void`, lock/await hazards |
+| Error Handling & Logging | **2** – Promise rejection / try–catch auditing | **2** – Exception swallow/logging checks | **2** – Error wrapping, panic usage | **2** – Throw-in-dtor, catch-by-value | **2** – Result/expect/panic usage | **2** – Logging best practices, try-with-resources | **1** – Rescue/raise heuristics | **2** – `throw ex`, empty catch, broad catch patterns |
+| Security & Taint | **3** – Lightweight taint engine + security heuristics (cat.7) | **2** – Eval/exec/SQL string heuristics | **2** – HTTP/crypto/command checks | **1** – Limited dedicated security (mostly UB) | **2** – Security category (cat.8) | **3** – SQL concat, `Runtime.exec`, SSL/crypto checks | **2** – Rails mass-assignment, shell/eval warnings | **2** – weak crypto, TLS bypass, hardcoded secrets, ASP.NET web hazards |
+| Resource Lifecycle & I/O | **3** – AST event-listener/timer/observer tracking + heuristics | **2** – Context-manager & file lifecycle hints | **2** – `defer`/file close + HTTP resource hygiene | **2** – Thread join/malloc/free & resource correlation | **2** – Drop/RAII heuristics + correlation | **3** – Executor/file stream cleanup detections | **2** – File open/close + block usage hints | **2** – HttpClient/IDisposable/timer/CTS lifecycle heuristics |
+| Build / Tooling Hygiene | **0** – Not covered yet | **2** – `uv` extras, packaging, notebook hygiene | **2** – Go toolchain sanity (`go vet`, module drift) | **1** – CMake/CXX standard reminders | **3** – `cargo fmt/clippy/test/check` integrations | **2** – Maven/Gradle best-effort builds | **2** – Bundler/Rake/AST rule packs | **2** – optional `dotnet format/build/test/list package` checks |
+| Code Quality Markers | **1** – TODO/HACK detectors | **1** | **1** | **1** | **1** | **1** | **1** | **1** |
+| Domain-Specific Extras | **3** – React hooks, Node I/O, taint flows | **2** – Typing strictness, notebook linting | **2** – Context propagation, HTTP server/client reviews | **2** – Modernization, macro/STL idioms | **3** – Unsafe/FFI audits, cargo inventory | **3** – SQL/Executor/annotation/path handling | **2** – Rails practicals, bundle hygiene | **2** – ASP.NET middleware/CORS hazards, parsing and lock heuristics |
 
 Use this matrix to decide which language module’s findings you want to prioritize or extend. For example, if you need deeper Go resource-lifecycle audits, you can extend category 5 (defer/cleanup) or contribute new AST-grep rules; for JavaScript security you can build on the taint engine already running in category 7.
 
@@ -2457,6 +2458,9 @@ test-suite/
 ├── manifest.json          # Test case definitions
 ├── run_manifest.py        # Python test runner
 ├── artifacts/             # Captured outputs per test
+├── csharp/
+│   ├── buggy/
+│   └── clean/
 ├── python/
 │   ├── buggy/            # Intentionally buggy fixtures
 │   └── clean/            # Clean code fixtures
@@ -2639,7 +2643,7 @@ The Ultimate Bug Scanner gives you:
 ### **One Command. Three Seconds. Zero Production Bugs.**
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/master/install.sh?$(date +%s)" | bash
+curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/install.sh?$(date +%s)" | bash
 ```
 
 **Then never waste another evening debugging a null pointer exception.**
