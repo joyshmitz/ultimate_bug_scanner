@@ -278,30 +278,46 @@ build_file_list() {
   local IFS2=','; read -r -a exdirs <<<"$EXCLUDE_DIRS"
   read -r -a exdirs2 <<<"$EXTRA_EXCLUDE_DIRS"
   exdirs+=("${exdirs2[@]}")
-  # Build find prune expression
-  local find_cmd=(find "$PROJECT_DIR" -type d)
-  local prune=()
-  local d
-  for d in "${exdirs[@]}"; do
-    [[ -z "$d" ]] && continue
-    prune+=( -name "$d" -o )
-  done
-  if [[ ${#prune[@]} -gt 0 ]]; then
-    prune=("${prune[@]:0:${#prune[@]}-1}") # drop trailing -o
-    find_cmd+=( \( "${prune[@]}" \) -prune -o )
+  if [[ -f "$PROJECT_DIR" ]]; then
+    : >"$out"
+    local ext matched=0
+    for ext in "${exts[@]}"; do
+      ext="${ext#.}"
+      if [[ "${PROJECT_DIR,,}" == *.${ext,,} ]]; then
+        printf '%s\0' "$PROJECT_DIR" >"$out"
+        matched=1
+        break
+      fi
+    done
+    if [[ "$matched" -eq 0 ]]; then
+      : >"$out"
+    fi
   else
-    find_cmd+=( -o )
-  fi
-  find_cmd+=( -type f \( )
-  local e
-  for e in "${exts[@]}"; do
-    e="${e#.}"
-    find_cmd+=( -iname "*.${e}" -o )
-  done
-  find_cmd=("${find_cmd[@]:0:${#find_cmd[@]}-1}") # drop trailing -o
-  find_cmd+=( \) -print0 )
+    # Build find prune expression
+    local find_cmd=(find "$PROJECT_DIR" -type d)
+    local prune=()
+    local d
+    for d in "${exdirs[@]}"; do
+      [[ -z "$d" ]] && continue
+      prune+=( -name "$d" -o )
+    done
+    if [[ ${#prune[@]} -gt 0 ]]; then
+      prune=("${prune[@]:0:${#prune[@]}-1}") # drop trailing -o
+      find_cmd+=( \( "${prune[@]}" \) -prune -o )
+    else
+      find_cmd+=( -o )
+    fi
+    find_cmd+=( -type f \( )
+    local e
+    for e in "${exts[@]}"; do
+      e="${e#.}"
+      find_cmd+=( -iname "*.${e}" -o )
+    done
+    find_cmd=("${find_cmd[@]:0:${#find_cmd[@]}-1}") # drop trailing -o
+    find_cmd+=( \) -print0 )
 
-  "${find_cmd[@]}" >"$out"
+    "${find_cmd[@]}" >"$out"
+  fi
 
   if [[ "$STRICT_GITIGNORE" -eq 1 && -d "$PROJECT_DIR/.git" ]] && command -v git >/dev/null 2>&1; then
     if [[ "$HAS_PYTHON" -eq 1 ]]; then
@@ -1131,8 +1147,15 @@ parse_args() {
     NO_COLOR_FLAG=1
   fi
 
-  [[ -d "$PROJECT_DIR" ]] || die "Project directory not found: $PROJECT_DIR"
-  PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
+  [[ -d "$PROJECT_DIR" || -f "$PROJECT_DIR" ]] || die "Project directory not found: $PROJECT_DIR"
+  if [[ -d "$PROJECT_DIR" ]]; then
+    PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
+  else
+    local project_dir_base project_dir_name
+    project_dir_base="$(cd "$(dirname "$PROJECT_DIR")" && pwd)"
+    project_dir_name="$(basename "$PROJECT_DIR")"
+    PROJECT_DIR="$project_dir_base/$project_dir_name"
+  fi
 }
 
 count_project_files() {
@@ -1209,11 +1232,11 @@ search '\bnew\s+HttpClient\s*\(' "$tmp"
 
   # FileStream/StreamReader/StreamWriter without using (approx: line contains new StreamReader but not using)
 search '\bnew\s+(FileStream|StreamReader|StreamWriter)\s*\(' "$tmp"
-  hits=$(cat "$tmp" | grep -v '^[[:space:]]*using\b' | count_lines)
+  hits=$( (grep -v ':[[:space:]]*using\b' "$tmp" 2>/dev/null || true) | count_lines )
   if [[ $hits -gt 0 ]]; then
     bump_counter warning "$hits"
     [[ "$FORMAT" == "text" ]] && echo "${YELLOW}${ICON_WARN} Stream created without 'using' on same line (approx) ($hits)${RESET}"
-    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | grep -v '^[[:space:]]*using\b' | print_matches "Stream without using" "new Stream" "warning" "$cat" || true
+    [[ "$FORMAT" == "text" ]] && ( head -n "$DETAIL_LIMIT" "$tmp" | grep -v ':[[:space:]]*using\b' || true ) | print_matches "Stream without using" "new Stream" "warning" "$cat" || true
   fi
 }
 
@@ -1815,6 +1838,7 @@ category_18_inventory() {
   bump_counter info 1
   add_finding "info" "$cat" "Inventory: solutions=$sln_count projects=$csproj_count tfm_tags=$tfm_hits files=$TOTAL_FILES" "" 0 ""
   [[ "$FORMAT" == "text" ]] && echo "${CYAN}${ICON_INFO} Solutions: $sln_count, Projects: $csproj_count, TargetFramework tags: $tfm_hits, C# files scanned: $TOTAL_FILES${RESET}"
+  return 0
 }
 
 # Resource lifecycle correlation similar to Rust scanner

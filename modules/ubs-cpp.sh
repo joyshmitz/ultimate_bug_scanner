@@ -15,6 +15,8 @@ set -Eeuo pipefail
 shopt -s lastpipe
 shopt -s extglob
 
+SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Predefine colors in case an early ERR trap fires before normal init
 RED=''; GREEN=''; YELLOW=''; BLUE=''; MAGENTA=''; CYAN=''; WHITE=''; GRAY=''
 BOLD=''; DIM=''; RESET=''
@@ -498,7 +500,45 @@ show_detailed_finding() {
 }
 
 run_resource_lifecycle_checks() {
-  local header_shown=0
+  print_subheader "Resource lifecycle correlation"
+  local helper="$SCRIPT_DIR/helpers/resource_lifecycle_cpp.py"
+  if [[ -f "$helper" ]] && command -v python3 >/dev/null 2>&1; then
+    local output helper_err helper_err_tmp helper_err_preview
+    helper_err="/dev/null"
+    if helper_err_tmp="$(mktemp -t ubs-cpp-resource-lifecycle.XXXXXX 2>/dev/null || mktemp)"; then
+      helper_err="$helper_err_tmp"
+    fi
+    if output=$(python3 "$helper" "$PROJECT_DIR" 2>"$helper_err"); then
+      if [[ -z "$output" ]]; then
+        print_finding "good" "All tracked resource acquisitions have matching cleanups"
+      else
+        while IFS=$'\t' read -r location kind message; do
+          [[ -z "$location" || -z "$kind" ]] && continue
+          local summary="${RESOURCE_LIFECYCLE_SUMMARY[$kind]:-Resource imbalance}"
+          local remediation="${RESOURCE_LIFECYCLE_REMEDIATION[$kind]:-Ensure matching cleanup call}"
+          local severity="${RESOURCE_LIFECYCLE_SEVERITY[$kind]:-warning}"
+          local detail="$remediation"
+          [[ -n "$message" ]] && detail="$message"
+          print_finding "$severity" 1 "$summary [$location]" "$detail"
+        done <<<"$output"
+      fi
+      [[ "$helper_err" != "/dev/null" ]] && rm -f "$helper_err" 2>/dev/null || true
+      return
+    else
+      helper_err_preview="$(head -n 1 "$helper_err" 2>/dev/null || true)"
+      [[ -z "$helper_err_preview" ]] && helper_err_preview="Run: python3 $helper $PROJECT_DIR"
+      print_finding "info" 0 "AST helper failed" "$helper_err_preview"
+      [[ "$helper_err" != "/dev/null" ]] && rm -f "$helper_err" 2>/dev/null || true
+    fi
+  else
+    if [[ ! -f "$helper" ]]; then
+      print_finding "info" 0 "Resource helper missing" "Expected $helper"
+    elif ! command -v python3 >/dev/null 2>&1; then
+      print_finding "info" 0 "python3 not available" "Install Python 3 to run AST helper"
+    fi
+  fi
+
+  local emitted=0
   local rid
   for rid in "${RESOURCE_LIFECYCLE_IDS[@]}"; do
     local acquire_regex="${RESOURCE_LIFECYCLE_ACQUIRE[$rid]:-}"
@@ -515,10 +555,7 @@ run_resource_lifecycle_checks() {
       acquire_hits=${acquire_hits:-0}
       release_hits=${release_hits:-0}
       if (( acquire_hits > release_hits )); then
-        if [[ $header_shown -eq 0 ]]; then
-          print_subheader "Resource lifecycle correlation"
-          header_shown=1
-        fi
+        emitted=1
         local delta=$((acquire_hits - release_hits))
         local relpath=${file#"$PROJECT_DIR"/}
         [[ "$relpath" == "$file" ]] && relpath="$file"
@@ -531,8 +568,7 @@ run_resource_lifecycle_checks() {
       fi
     done <<<"$file_list"
   done
-  if [[ $header_shown -eq 0 ]]; then
-    print_subheader "Resource lifecycle correlation"
+  if [[ $emitted -eq 0 ]]; then
     print_finding "good" "All tracked resource acquisitions have matching cleanups"
   fi
 }

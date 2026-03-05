@@ -131,8 +131,16 @@ def check_expectations(
 ) -> List[str]:
     errors: List[str] = []
     derived_exit = exit_code
+    totals: Dict[str, Any] = {}
     if summary and isinstance(summary, dict):
         totals = summary.get("totals", {}) or {}
+        if not isinstance(totals, dict) or not totals:
+            totals = {
+                "critical": summary.get("critical", 0),
+                "warning": summary.get("warning", 0),
+                "info": summary.get("info", 0),
+                "files": summary.get("files", 0),
+            }
         critical = int(totals.get("critical", 0) or 0)
         warning = int(totals.get("warning", 0) or 0)
         if critical > 0:
@@ -155,7 +163,6 @@ def check_expectations(
         elif need == "nonzero" and derived_exit == 0:
             errors.append("expected non-zero exit but derived 0")
     totals_expect = (expect or {}).get("totals", {})
-    totals = (summary or {}).get("totals", {}) if summary else {}
     for severity, limits in totals_expect.items():
         observed = int(totals.get(severity, 0) or 0)
         lower = limits.get("min")

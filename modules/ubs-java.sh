@@ -882,14 +882,22 @@ end_scan_section(){
 # ────────────────────────────────────────────────────────────────────────────
 # Tool detection
 # ────────────────────────────────────────────────────────────────────────────
+ast_grep_works() {
+  local -a cmd=("$@")
+  [[ ${#cmd[@]} -gt 0 ]] || return 1
+  "${cmd[@]}" scan --help >/dev/null 2>&1
+}
+
 check_ast_grep() {
-  if command -v ast-grep >/dev/null 2>&1; then AST_GREP_CMD=(ast-grep); HAS_AST_GREP=1; return 0; fi
+  if command -v ast-grep >/dev/null 2>&1 && ast_grep_works ast-grep; then
+    AST_GREP_CMD=(ast-grep); HAS_AST_GREP=1; return 0
+  fi
   # Verify 'sg' is actually ast-grep, not the Unix newgrp command
-  if command -v sg >/dev/null 2>&1 && sg --version 2>&1 | grep -qi "ast-grep"; then
+  if command -v sg >/dev/null 2>&1 && sg --version 2>&1 | grep -qi "ast-grep" && ast_grep_works sg; then
     AST_GREP_CMD=(sg); HAS_AST_GREP=1; return 0
   fi
   # Skip npx in CI environments where download might fail/timeout
-  if [[ -z "${CI:-}" ]] && command -v npx >/dev/null 2>&1 && npx -y @ast-grep/cli --version >/dev/null 2>&1; then
+  if [[ -z "${CI:-}" ]] && command -v npx >/dev/null 2>&1 && npx -y @ast-grep/cli --version >/dev/null 2>&1 && ast_grep_works npx -y @ast-grep/cli; then
     AST_GREP_CMD=(npx -y @ast-grep/cli); HAS_AST_GREP=1; return 0
   fi
   say "${YELLOW}${WARN} ast-grep not found. Advanced AST checks will be limited.${RESET}"
@@ -923,7 +931,14 @@ check_java_env() {
 ast_search() {
   local pattern=$1
   if [[ "$HAS_AST_GREP" -eq 1 ]]; then
-    ( set +o pipefail; "${AST_GREP_CMD[@]}" --lang java --pattern "$pattern" "$PROJECT_DIR" 2>/dev/null || true ) | wc -l | awk '{print $1+0}'
+    local tmp_out
+    tmp_out="$(mktemp_file ubs-java-ast-search)"
+    cleanup_add "$tmp_out"
+    if ( set +o pipefail; "${AST_GREP_CMD[@]}" --lang java --pattern "$pattern" "$PROJECT_DIR" ) >"$tmp_out" 2>/dev/null; then
+      awk 'NF{count++} END{print count+0}' "$tmp_out"
+    else
+      echo 0
+    fi
   else
     return 1
   fi
@@ -2257,6 +2272,9 @@ fi
 # ═══════════════════════════════════════════════════════════════════════════
 # CATEGORY 23: RESOURCE SAFETY & RESOURCE LIFECYCLE CORRELATION
 # ═══════════════════════════════════════════════════════════════════════════
+if false; then
+# The remainder of this file is an accidental duplicated category tail.
+# Keep it parsed for now, but never execute it so counts are not multiplied.
 if should_run 23; then
 print_header "23. RESOURCE SAFETY & RESOURCE LIFECYCLE CORRELATION"
 print_category "Detects: stream/reader/writer creation; nudge toward try-with-resources" \
@@ -4032,6 +4050,7 @@ if [[ "$HAS_AST_GREP" -eq 1 && -n "$AST_RULE_DIR" ]]; then
   fi
 else
   say "${YELLOW}${WARN} ast-grep scan subcommand unavailable; rule-pack mode skipped.${RESET}"
+fi
 fi
 fi
 

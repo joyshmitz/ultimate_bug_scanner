@@ -12,6 +12,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PYTHON_HELPER = REPO_ROOT / "modules" / "helpers" / "resource_lifecycle_py.py"
+CPP_HELPER = REPO_ROOT / "modules" / "helpers" / "resource_lifecycle_cpp.py"
 RUBY_HELPER = REPO_ROOT / "modules" / "helpers" / "resource_lifecycle_ruby.py"
 SWIFT_HELPER = REPO_ROOT / "modules" / "helpers" / "resource_lifecycle_swift.py"
 
@@ -213,6 +214,62 @@ class ResourceHelperTests(unittest.TestCase):
                 """,
             },
             prefix="ubs-ruby-resource-helper-",
+        )
+        self.assertEqual(lines, [])
+
+    def test_cpp_helper_reports_resource_leaks(self) -> None:
+        lines = run_helper(
+            CPP_HELPER,
+            {
+                "leaky.cpp": """
+                #include <cstdio>
+                #include <cstdlib>
+                #include <thread>
+
+                void work() {}
+
+                void leak_everything() {
+                    std::thread worker(work);
+                    void* buf = malloc(256);
+                    FILE* handle = fopen("/tmp/demo.txt", "w");
+                    (void)worker;
+                    (void)buf;
+                    (void)handle;
+                }
+                """,
+            },
+            prefix="ubs-cpp-resource-helper-",
+        )
+        entries = parse(lines)
+        kinds = {kind for _, kind, _ in entries}
+        self.assertIn("thread_join", kinds)
+        self.assertIn("malloc_heap", kinds)
+        self.assertIn("fopen_handle", kinds)
+
+    def test_cpp_helper_respects_cleanup(self) -> None:
+        lines = run_helper(
+            CPP_HELPER,
+            {
+                "clean.cpp": """
+                #include <cstdio>
+                #include <cstdlib>
+                #include <thread>
+
+                void work() {}
+
+                void tidy() {
+                    std::thread worker(work);
+                    worker.join();
+
+                    void* buf = malloc(256);
+                    free(buf);
+
+                    FILE* handle = fopen("/tmp/demo.txt", "w");
+                    fclose(handle);
+                }
+                """,
+            },
+            prefix="ubs-cpp-resource-helper-",
         )
         self.assertEqual(lines, [])
 
