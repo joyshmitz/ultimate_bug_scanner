@@ -658,16 +658,27 @@ dir_size_mb_filtered(){
   if need_cmd du; then
     local -a du_args=()
     if [[ -n "$patterns_csv" ]] && du --help 2>/dev/null | grep -q -- '--exclude'; then
-      du_can_exclude=1
+      # du --exclude matches patterns against each entry's basename, not the
+      # full relative path.  Path-based patterns (containing '/') silently
+      # fail to match anything, causing the size calculation to ignore the
+      # exclusion entirely (GitHub issue #16).  Detect this and fall through
+      # to the Python fallback which handles path-based patterns correctly.
+      local has_path_pattern=0
       local -a pats=()
       IFS=',' read -r -a pats <<<"$patterns_csv"
       for pat in "${pats[@]}"; do
-        [[ -n "$pat" ]] && du_args+=( "--exclude=$pat" )
+        if [[ -n "$pat" ]]; then
+          du_args+=( "--exclude=$pat" )
+          [[ "$pat" == */* ]] && has_path_pattern=1
+        fi
       done
+      [[ "$has_path_pattern" -eq 0 ]] && du_can_exclude=1
     fi
-    # Only use du when no patterns are needed or du supports --exclude;
-    # otherwise fall through to the Python fallback which handles exclusions
-    # correctly on all platforms (fixes macOS/BSD du which lacks --exclude).
+    # Only use du when no patterns are needed or du supports --exclude
+    # AND all patterns are simple (no path separators); otherwise fall
+    # through to the Python fallback which handles exclusions correctly
+    # on all platforms (fixes macOS/BSD du which lacks --exclude, and
+    # path-based patterns which du --exclude silently ignores — #16).
     if [[ -z "$patterns_csv" || "$du_can_exclude" -eq 1 ]]; then
       result=$(du -sm "${du_args[@]}" "$dir" 2>/dev/null | cut -f1)
       if [[ "$result" =~ ^[0-9]+$ ]]; then
