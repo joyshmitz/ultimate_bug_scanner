@@ -2303,8 +2303,8 @@ id: js.fs.writeFileSync-not-atomic
 language: typescript
 rule:
   any:
-    - pattern: fs.writeFileSync($PATH, $DATA)
-    - pattern: writeFileSync($PATH, $DATA)
+    - pattern: fs.writeFileSync($PATH, $$$)
+    - pattern: writeFileSync($PATH, $$$)
 severity: info
 message: "writeFileSync is not atomic; for durability, write to temp file and rename"
 YAML

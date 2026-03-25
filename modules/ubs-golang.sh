@@ -1493,19 +1493,6 @@ YAML
   # Rules derived from 42+ Go bugs found via iterative deep-audit sessions
   # in the ntm (Named Tmux Manager) codebase.
 
-  cat >"$AST_RULE_DIR/go-map-no-ok.yml" <<'YAML'
-id: go.map-lookup-no-ok
-language: go
-rule:
-  pattern: $V := $MAP[$KEY]
-  not:
-    any:
-      - pattern: $V, $OK := $MAP[$KEY]
-      - pattern: $V, _ := $MAP[$KEY]
-severity: info
-message: "Map lookup without comma-ok returns zero value for missing keys; use v, ok := m[k] when zero-value ambiguity matters"
-YAML
-
   cat >"$AST_RULE_DIR/go-sort-slice-param.yml" <<'YAML'
 id: go.sort-slice-mutates
 language: go
@@ -1538,7 +1525,6 @@ rule:
         - pattern: $ERR := os.Remove($PATH)
         - pattern: $ERR = os.Remove($PATH)
         - pattern: if $ERR := os.Remove($PATH); $$$
-        - pattern: $ERR := os.RemoveAll($PATH)
 severity: warning
 message: "os.Remove error ignored; handle or check for os.ErrNotExist at minimum"
 YAML
