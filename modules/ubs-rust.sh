@@ -110,6 +110,7 @@ EMIT_FINDINGS_JSON=""
 LIST_CATEGORIES=0
 DUMP_RULES_DIR=""
 STRICT_GITIGNORE=0
+EXCLUDE_TESTS=0
 
 # New (v3.x): internal-only toggles
 AST_GREP_RUN_STYLE=0
@@ -139,6 +140,7 @@ Options:
   --summary-json=FILE        Write a machine-readable summary (JSON)
   --emit-findings-json=FILE  Write full findings (structured JSON)
   --strict-gitignore         Honor .gitignore even without ripgrep
+  --exclude-tests            Exclude matches inside test functions/modules
   --fail-critical=N          Exit non-zero if critical issues >= N (default: 1)
   --fail-warning=N           Exit non-zero if warnings  >= N (default: 0)
   -h, --help                 Show help
@@ -174,6 +176,7 @@ while [[ $# -gt 0 ]]; do
     --summary-json=*) SUMMARY_JSON="${1#*=}"; shift;;
     --emit-findings-json=*) EMIT_FINDINGS_JSON="${1#*=}"; shift;;
     --strict-gitignore) STRICT_GITIGNORE=1; shift;;
+    --exclude-tests) EXCLUDE_TESTS=1; shift;;
     --fail-critical=*) FAIL_CRITICAL_THRESHOLD="${1#*=}"; shift;;
     --fail-warning=*)  FAIL_WARNING_THRESHOLD="${1#*=}"; shift;;
     -h|--help)    print_usage; exit 0;;
@@ -594,7 +597,68 @@ else
   GREP_RNW=(ubs_grep -n -w -E)
 fi
 
-count_lines() { grep -v 'ubs:ignore' | awk 'END{print (NR+0)}'; }
+count_lines() { grep -v 'ubs:ignore' | filter_test_lines | awk 'END{print (NR+0)}'; }
+
+# ---------------------------------------------------------------------------
+# --exclude-tests: filter out matches inside test functions/modules
+# ---------------------------------------------------------------------------
+# Detects test context via:
+#   1. File under tests/ or benches/ directory → always excluded
+#   2. Line at or below first #[cfg(test)] in the file → excluded
+# The #[cfg(test)] heuristic handles the standard Rust pattern where a
+# mod tests { ... } block lives at the bottom of each source file.
+# ---------------------------------------------------------------------------
+declare -A _UBS_TEST_BOUNDARY=()
+
+_ubs_test_boundary() {
+  local file="$1"
+  if [[ -z "${_UBS_TEST_BOUNDARY[$file]+x}" ]]; then
+    # Find earliest test boundary: #[cfg(test)] or bare `mod tests {`
+    local b1 b2 b=0
+    b1=$(grep -n '#\[cfg(test)\]' "$file" 2>/dev/null | head -1 | cut -d: -f1)
+    b2=$(grep -n '^[[:space:]]*mod tests' "$file" 2>/dev/null | head -1 | cut -d: -f1)
+    b1=${b1:-0}; b2=${b2:-0}
+    if [[ "$b1" -gt 0 && "$b2" -gt 0 ]]; then
+      b=$(( b1 < b2 ? b1 : b2 ))
+    elif [[ "$b1" -gt 0 ]]; then
+      b=$b1
+    elif [[ "$b2" -gt 0 ]]; then
+      b=$b2
+    fi
+    _UBS_TEST_BOUNDARY["$file"]="$b"
+  fi
+  printf '%s' "${_UBS_TEST_BOUNDARY[$file]}"
+}
+
+filter_test_lines() {
+  if [[ "${EXCLUDE_TESTS:-0}" -eq 0 ]]; then
+    cat
+    return
+  fi
+  while IFS= read -r _ftl_raw; do
+    [[ -z "$_ftl_raw" ]] && continue
+    # Parse file:line:code (handles Windows drive letters too)
+    local _ftl_f="" _ftl_l=""
+    if [[ "$_ftl_raw" =~ ^([A-Za-z]:.+):([0-9]+): ]] || [[ "$_ftl_raw" =~ ^(.+):([0-9]+): ]]; then
+      _ftl_f="${BASH_REMATCH[1]}"
+      _ftl_l="${BASH_REMATCH[2]}"
+    else
+      printf '%s\n' "$_ftl_raw"
+      continue
+    fi
+    # Rule 1: files under tests/ or benches/
+    if [[ "$_ftl_f" == */tests/* || "$_ftl_f" == */benches/* ]]; then
+      continue
+    fi
+    # Rule 2: at or below #[cfg(test)]
+    local _ftl_b
+    _ftl_b=$(_ubs_test_boundary "$_ftl_f")
+    if [[ "$_ftl_b" -gt 0 && "$_ftl_l" -ge "$_ftl_b" ]]; then
+      continue
+    fi
+    printf '%s\n' "$_ftl_raw"
+  done
+}
 
 maybe_clear() { if [[ -t 1 && "$CI_MODE" -eq 0 && "$QUIET" -eq 0 ]]; then clear || true; fi; }
 say() { [[ "$QUIET" -eq 1 ]] && return 0; echo -e "$*"; }
@@ -676,12 +740,12 @@ show_detailed_finding() {
     parse_grep_line "$rawline" || continue
     print_code_sample "$PARSED_FILE" "$PARSED_LINE" "$PARSED_CODE"; printed=$((printed+1))
     [[ $printed -ge $limit || $printed -ge $MAX_DETAILED ]] && break
-  done < <("${GREP_RN[@]}" -e "$pattern" "$PROJECT_DIR" 2>/dev/null | head -n "$limit" || true) || true
+  done < <("${GREP_RN[@]}" -e "$pattern" "$PROJECT_DIR" 2>/dev/null | filter_test_lines | head -n "$limit" || true) || true
 }
 
 collect_samples_rg() {
   local pattern="$1"; local limit="${2:-$DETAIL_LIMIT}"
-  mapfile -t lines < <("${GREP_RN[@]}" -e "$pattern" "$PROJECT_DIR" 2>/dev/null | grep -v 'ubs:ignore' | head -n "$limit")
+  mapfile -t lines < <("${GREP_RN[@]}" -e "$pattern" "$PROJECT_DIR" 2>/dev/null | grep -v 'ubs:ignore' | filter_test_lines | head -n "$limit")
   printf '['; local i=0; for l in "${lines[@]}"; do [[ $i -gt 0 ]] && printf ','; printf '"%s"' "$(printf '%s' "$l" | json_escape)"; i=$((i+1)); done; printf ']'
 }
 
