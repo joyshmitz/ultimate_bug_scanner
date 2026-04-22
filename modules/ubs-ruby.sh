@@ -266,7 +266,7 @@ declare -A RESOURCE_LIFECYCLE_REMEDIATION=(
 # ────────────────────────────────────────────────────────────────────────────
 # Utilities
 # ────────────────────────────────────────────────────────────────────────────
-maybe_clear() { if [[ -t 1 && "$CI_MODE" -eq 0 && ! is_machine_format ]]; then clear || true; fi; }
+maybe_clear() { if [[ -t 1 && "$CI_MODE" -eq 0 ]] && ! is_machine_format; then clear || true; fi; }
 say() { [[ "$QUIET" -eq 1 ]] && return 0; echo -e "$*"; }
 
 json_escape() {
