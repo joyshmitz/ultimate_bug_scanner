@@ -2145,6 +2145,57 @@
       }
     },
     {
+      "id": "elixir-security-command-buggy",
+      "description": "Elixir shell-backed command execution should be critical.",
+      "path": "test-suite/elixir/buggy/command_execution.ex",
+      "language": "elixir",
+      "tags": [
+        "elixir",
+        "security",
+        "buggy"
+      ],
+      "args": [
+        "--only=elixir",
+        "--fail-on-warning"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "critical": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "Shell-backed command execution"
+        ]
+      }
+    },
+    {
+      "id": "elixir-security-command-clean",
+      "description": "Elixir fixed executable System.cmd argv usage remains non-critical.",
+      "path": "test-suite/elixir/clean/command_execution.ex",
+      "language": "elixir",
+      "tags": [
+        "elixir",
+        "security",
+        "clean"
+      ],
+      "args": [
+        "--only=elixir"
+      ],
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "critical": {
+            "max": 0
+          },
+          "warning": {
+            "max": 0
+          }
+        }
+      }
+    },
+    {
       "id": "toon-format-js-buggy",
       "description": "TOON format output for JS buggy fixtures (validates TOON encoding works).",
       "path": "test-suite/buggy",

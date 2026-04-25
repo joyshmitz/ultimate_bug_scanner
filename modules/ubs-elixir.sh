@@ -598,11 +598,28 @@ if [ "$count" -gt 0 ]; then
   show_detailed_finding "Code\.eval_(string|quoted|file)\b" 5
 fi
 
-print_subheader "System.cmd / :os.cmd with variable arguments"
-count=$("${GREP_RN[@]}" -e "System\.cmd\b|:os\.cmd\b" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
-if [ "$count" -gt 0 ]; then
-  print_finding "warning" "$count" "System command execution" "Ensure user input is sanitized; prefer System.cmd with explicit arg list"
-  show_detailed_finding "System\.cmd\b|:os\.cmd\b" 5
+print_subheader "System command execution"
+critical_pattern=':os\.cmd\b|System\.shell\b|Port\.open\(\s*\{:spawn,|System\.cmd\s*\(\s*"(((/usr)?/bin/)?(sh|bash|zsh)|cmd(\.exe)?|powershell|pwsh)"\s*,\s*\[[^]]*("-c"|"/C"|"-Command")|System\.cmd\s*\(\s*"/usr/bin/env"\s*,\s*\[[^]]*"(sh|bash|zsh)"[^]]*("-c")'
+variable_pattern='System\.cmd\s*\(\s*[A-Za-z_][A-Za-z0-9_?!]*\s*,'
+all_pattern='System\.cmd\b|System\.shell\b|:os\.cmd\b|Port\.open\(\s*\{:spawn,'
+critical_count=$("${GREP_RN[@]}" -e "$critical_pattern" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+if [ "$critical_count" -gt 0 ]; then
+  print_finding "critical" "$critical_count" "Shell-backed command execution" "Avoid :os.cmd, System.shell, Port {:spawn, ...}, and System.cmd(\"sh\", [\"-c\", ...]); prefer fixed executables with argv lists."
+  show_detailed_finding "$critical_pattern" 5
+fi
+variable_count=$("${GREP_RN[@]}" -e "$variable_pattern" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+if [ "$variable_count" -gt 0 ]; then
+  print_finding "warning" "$variable_count" "System.cmd executable comes from a variable" "Allowlist command names before passing them to System.cmd/3."
+  show_detailed_finding "$variable_pattern" 3
+fi
+count=$("${GREP_RN[@]}" -e "$all_pattern" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+review_count=$((count - critical_count - variable_count))
+if [ "$review_count" -lt 0 ]; then review_count=0; fi
+if [ "$review_count" -gt 0 ]; then
+  print_finding "info" "$review_count" "Fixed System.cmd/Port command execution present - validate argv boundaries"
+  show_detailed_finding "$all_pattern" 3
+elif [ "$critical_count" -eq 0 ] && [ "$variable_count" -eq 0 ]; then
+  print_finding "good" "No System command execution detected"
 fi
 
 print_subheader "SQL injection: raw/fragment with interpolation in Ecto"
