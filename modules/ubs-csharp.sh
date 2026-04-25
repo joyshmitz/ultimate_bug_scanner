@@ -1429,6 +1429,16 @@ search 'ServerCertificateCustomValidationCallback\s*=\s*\([^)]*\)\s*=>\s*true' "
     [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "TLS validation disabled" "ServerCertificateCustomValidationCallback" "critical" "$cat" || true
   fi
 
+  # Shell-backed process launches are the high-risk Process.Start shape.
+  local shell_proc_pattern='\b(Process\.Start|new[[:space:]]+ProcessStartInfo)[[:space:]]*\([[:space:]]*"(cmd([.]exe)?|powershell([.]exe)?|pwsh([.]exe)?|sh|bash)"[[:space:]]*,[[:space:]]*"(/?[cC]|-[cC]|-[Cc]ommand|-[Ee]ncoded[Cc]ommand)|\bFileName[[:space:]]*=[[:space:]]*"(cmd([.]exe)?|powershell([.]exe)?|pwsh([.]exe)?|sh|bash)"'
+search "$shell_proc_pattern" "$tmp"
+  hits=$(cat "$tmp" | count_lines)
+  if [[ $hits -gt 0 ]]; then
+    bump_counter critical "$hits"
+    [[ "$FORMAT" == "text" ]] && echo "${RED}${ICON_CRIT} Shell interpreter launched via Process API ($hits) - pass argv directly or strictly validate input${RESET}"
+    [[ "$FORMAT" == "text" ]] && head -n "$DETAIL_LIMIT" "$tmp" | print_matches "Process shell launch" "Process.Start shell" "critical" "$cat" || true
+  fi
+
   # SQL injection-ish string concatenation (very heuristic)
 search '\b(SELECT|UPDATE|DELETE|INSERT)\b.*\+\s*' "$tmp"
   hits=$(cat "$tmp" | count_lines)

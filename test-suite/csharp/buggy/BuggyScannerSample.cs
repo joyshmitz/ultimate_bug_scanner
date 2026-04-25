@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
@@ -14,6 +15,9 @@ public static class BuggyScannerSample
 
         Console.WriteLine($"debug token: {rawInput}");
         var parsed = int.Parse(rawInput);
+        Process.Start("cmd.exe", "/C " + rawInput);
+        var shellInfo = new ProcessStartInfo("powershell.exe", "-Command " + rawInput);
+        Process.Start(shellInfo);
 
         try
         {
