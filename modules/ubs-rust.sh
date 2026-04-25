@@ -763,6 +763,28 @@ parse_ast_match_line() {
   PARSED_AST_CODE="$PARSED_CODE"
 }
 
+ast_match_should_skip() {
+  local file="$1" line="$2" code="${3:-}" source_line=""
+  [[ "$code" == *"ubs:ignore"* ]] && return 0
+  if [[ -f "$file" && "$line" =~ ^[0-9]+$ ]]; then
+    source_line="$(sed -n "${line}p" "$file" 2>/dev/null || true)"
+    [[ "$source_line" == *"ubs:ignore"* ]] && return 0
+  fi
+  if [[ "${EXCLUDE_TESTS:-0}" -eq 1 ]]; then
+    if [[ "$file" == */tests/* || "$file" == tests/* || "$file" == */benches/* || "$file" == benches/* ]]; then
+      return 0
+    fi
+    if [[ "$line" =~ ^[0-9]+$ ]]; then
+      local boundary
+      boundary=$(_ubs_test_boundary "$file")
+      if [[ "$boundary" -gt 0 && "$line" -ge "$boundary" ]]; then
+        return 0
+      fi
+    fi
+  fi
+  return 1
+}
+
 show_detailed_finding() {
   local pattern=$1; local limit=${2:-$DETAIL_LIMIT}; local printed=0
   while IFS= read -r rawline; do
@@ -910,6 +932,26 @@ ast_pattern_lines() {
   fi
 }
 
+count_ast_pattern_matches() {
+  local pattern="$1"
+  local count=0 rawline file line col key
+  declare -A seen=()
+  [[ "$HAS_AST_GREP" -eq 1 ]] || { printf '0\n'; return; }
+  while IFS= read -r rawline; do
+    [[ -z "$rawline" ]] && continue
+    parse_ast_match_line "$rawline" || continue
+    file="$PARSED_AST_FILE"
+    line="$PARSED_AST_LINE"
+    col="$PARSED_AST_COL"
+    ast_match_should_skip "$file" "$line" "$PARSED_AST_CODE" && continue
+    key="$file:$line:$col"
+    [[ -n "${seen[$key]:-}" ]] && continue
+    seen["$key"]=1
+    count=$((count + 1))
+  done < <(ast_pattern_lines "$pattern")
+  printf '%s\n' "$count"
+}
+
 show_ast_pattern_examples() {
   local limit="$1"
   shift
@@ -925,12 +967,13 @@ show_ast_pattern_examples() {
       col="$PARSED_AST_COL"
       rest="$PARSED_AST_CODE"
       key="$file:$line:$col"
-      [[ -n "${seen[$key]:-}" ]] && continue
-      seen["$key"]=1
       code="$rest"
       if [[ -f "$file" && -n "$line" ]]; then
         code="$(sed -n "${line}p" "$file" | sed $'s/\t/  /g')"
       fi
+      ast_match_should_skip "$file" "$line" "$code" && continue
+      [[ -n "${seen[$key]:-}" ]] && continue
+      seen["$key"]=1
       print_code_sample "$file" "$line" "$code"
       printed=$((printed + 1))
       [[ $printed -ge $limit || $printed -ge $MAX_DETAILED ]] && return 0
@@ -956,12 +999,13 @@ collect_samples_ast_or_rg() {
         col="$PARSED_AST_COL"
         rest="$PARSED_AST_CODE"
         key="$file:$line:$col"
-        [[ -n "${seen[$key]:-}" ]] && continue
-        seen["$key"]=1
         code="$rest"
         if [[ -f "$file" && -n "$line" ]]; then
           code="$(sed -n "${line}p" "$file" | sed $'s/\t/  /g')"
         fi
+        ast_match_should_skip "$file" "$line" "$code" && continue
+        [[ -n "${seen[$key]:-}" ]] && continue
+        seen["$key"]=1
         samples+=("$file:$line:$code")
         [[ ${#samples[@]} -ge $limit ]] && break 2
       done < <(ast_pattern_lines "$pattern")
@@ -1663,7 +1707,7 @@ count_ast_or_rg() {
   local hit pattern
   if [[ "$HAS_AST_GREP" -eq 1 ]]; then
     for pattern in "$@"; do
-      hit="$(ast_search "$pattern" || echo 0)"
+      hit="$(count_ast_pattern_matches "$pattern" || echo 0)"
       hit="$(printf '%s\n' "${hit:-0}" | awk 'END{print $0+0}')"
       ast_hits=$((ast_hits + hit))
     done
