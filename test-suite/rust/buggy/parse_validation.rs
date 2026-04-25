@@ -29,6 +29,14 @@ fn read_path() -> std::ffi::OsString {
     std::env::var_os("PATH").expect("PATH should exist")
 }
 
+fn encode_packet_length(packet: &[u8]) -> u8 {
+    packet.len() as u8
+}
+
+fn count_ids(ids: &[u64]) -> u16 {
+    ids.iter().filter(|id| **id > 0).count() as u16
+}
+
 fn narrow_port(raw: u64) -> u16 {
     raw.try_into().unwrap()
 }

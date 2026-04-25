@@ -2336,6 +2336,27 @@ severity: info
 message: "\`as\` cast can truncate or change sign; prefer TryFrom/TryInto when correctness matters"
 YAML
 
+  cat >"$AST_RULE_DIR/len-count-narrow-as.yml" <<'YAML'
+id: rust.len-count-narrow-as
+language: rust
+rule:
+  any:
+    - pattern: $X.len() as u8
+    - pattern: $X.len() as u16
+    - pattern: $X.len() as u32
+    - pattern: $X.len() as i8
+    - pattern: $X.len() as i16
+    - pattern: $X.len() as i32
+    - pattern: $X.count() as u8
+    - pattern: $X.count() as u16
+    - pattern: $X.count() as u32
+    - pattern: $X.count() as i8
+    - pattern: $X.count() as i16
+    - pattern: $X.count() as i32
+severity: warning
+message: "len()/count() narrowed with `as`; oversized collections can silently truncate"
+YAML
+
   cat >"$AST_RULE_DIR/try-into-unwrap.yml" <<'YAML'
 id: rust.try-into-unwrap
 language: rust
@@ -3367,13 +3388,55 @@ print_category "Detects: pervasive \`as\` casts, try_into().unwrap, numeric narr
   "\`as\` casts can silently truncate or change sign; conversion panics may be missed in uncommon input paths"
 
 print_subheader "\`as\` cast inventory"
-as_casts=$("${GREP_RN[@]}" -e "\bas\s+(u8|u16|u32|u64|usize|i8|i16|i32|i64|isize|f32|f64)\b" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+# shellcheck disable=SC2016
+as_cast_patterns=(
+  '$X as u8'
+  '$X as u16'
+  '$X as u32'
+  '$X as u64'
+  '$X as usize'
+  '$X as i8'
+  '$X as i16'
+  '$X as i32'
+  '$X as i64'
+  '$X as isize'
+  '$X as f32'
+  '$X as f64'
+)
+as_cast_rg="\bas\s+(u8|u16|u32|u64|usize|i8|i16|i32|i64|isize|f32|f64)\b"
+as_casts=$(count_ast_or_rg "$as_cast_rg" "${as_cast_patterns[@]}")
 as_casts=$(printf '%s\n' "${as_casts:-0}" | awk 'END{print $0+0}')
 if [ "$as_casts" -gt 0 ]; then
   print_finding "info" "$as_casts" "\`as\` casts present (possible truncation/sign bugs)" "Prefer TryFrom/TryInto for correctness or document invariants"
-  add_finding "info" "$as_casts" "\`as\` casts present (possible truncation/sign bugs)" "Prefer TryFrom/TryInto for correctness or document invariants" "${CATEGORY_NAME[22]}" "$(collect_samples_rg "\bas\s+(u8|u16|u32|u64|usize|i8|i16|i32|i64|isize|f32|f64)\b" 3)"
+  show_ast_pattern_examples 3 "${as_cast_patterns[@]}" || show_detailed_finding "$as_cast_rg" 3
+  add_finding "info" "$as_casts" "\`as\` casts present (possible truncation/sign bugs)" "Prefer TryFrom/TryInto for correctness or document invariants" "${CATEGORY_NAME[22]}" "$(collect_samples_ast_or_rg "$as_cast_rg" 3 "${as_cast_patterns[@]}")"
 else
   print_finding "good" "No obvious \`as\` casts detected"
+fi
+
+print_subheader "len()/count() narrowed via \`as\`"
+# shellcheck disable=SC2016
+len_count_narrow_patterns=(
+  '$X.len() as u8'
+  '$X.len() as u16'
+  '$X.len() as u32'
+  '$X.len() as i8'
+  '$X.len() as i16'
+  '$X.len() as i32'
+  '$X.count() as u8'
+  '$X.count() as u16'
+  '$X.count() as u32'
+  '$X.count() as i8'
+  '$X.count() as i16'
+  '$X.count() as i32'
+)
+len_count_narrow_rg="\.(len|count)\(\)\s+as\s+(u8|u16|u32|i8|i16|i32)\b"
+len_count_narrow=$(count_ast_or_rg "$len_count_narrow_rg" "${len_count_narrow_patterns[@]}")
+len_count_narrow=$(printf '%s\n' "${len_count_narrow:-0}" | awk 'END{print $0+0}')
+if [ "$len_count_narrow" -gt 0 ]; then
+  print_finding "warning" "$len_count_narrow" "Length/count narrowed with \`as\` cast" "Use TryFrom/TryInto or explicit checked bounds before storing sizes in narrow integer fields"
+  show_ast_pattern_examples 3 "${len_count_narrow_patterns[@]}" || show_detailed_finding "$len_count_narrow_rg" 3
+  add_finding "warning" "$len_count_narrow" "Length/count narrowed with \`as\` cast" "Use TryFrom/TryInto or explicit checked bounds before storing sizes in narrow integer fields" "${CATEGORY_NAME[22]}" "$(collect_samples_ast_or_rg "$len_count_narrow_rg" 3 "${len_count_narrow_patterns[@]}")"
 fi
 
 print_subheader "try_into().unwrap()/expect() (panic on conversion failure)"

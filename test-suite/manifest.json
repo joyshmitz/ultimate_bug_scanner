@@ -1310,6 +1310,7 @@
         },
         "require_substrings": [
           "try_into().unwrap()/expect() present",
+          "Length/count narrowed with `as` cast",
           "parse::<T>().unwrap()/expect() present",
           "serde/toml deserialization unwrap/expect",
           "env::var(...).unwrap()/expect()"

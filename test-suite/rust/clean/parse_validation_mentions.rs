@@ -4,6 +4,8 @@ fn documentation_mentions_only() -> &'static str {
     raw.parse::<usize>().unwrap()
     serde_json::from_str(raw).unwrap()
     std::env::var("APP_MODE").expect("configured")
+    payload.len() as u8
+    values.iter().count() as u16
     "#
 }
 
@@ -21,5 +23,6 @@ fn read_mode() -> String {
 
 fn notes() {
     // env::var("SECRET").unwrap() should stay documentation, not executable code.
+    // payload.len() as u8 should stay documentation, not a truncation warning.
     let _ = documentation_mentions_only();
 }
