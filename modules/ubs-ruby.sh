@@ -1222,19 +1222,37 @@ if [ "$count" -gt 0 ]; then
   show_detailed_finding "Marshal\.(load|restore)\(|YAML\.load\(" 5
 fi
 
+print_subheader "Interpolated backticks / %x() command execution"
+interpolated_backtick_pattern="\\\`[^\\\`]*#\\{[^}]+\\}[^\\\`]*\\\`|%x\\([^)]*#\\{[^}]+\\}[^)]*\\)"
+count=$("${GREP_RN[@]}" -e "$interpolated_backtick_pattern" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+if [ "$count" -gt 0 ]; then
+  print_finding "critical" "$count" "Backtick command execution with interpolation" "Avoid shell interpolation; use argv APIs such as Open3.capture2('cmd', arg)"
+  show_detailed_finding "$interpolated_backtick_pattern" 3
+fi
+
 print_subheader "Backticks / %x() command execution"
-count=$("${GREP_RN[@]}" -e '\`[^`]*\`|%x\([^)]*\)' "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+backtick_pattern="\\\`[^\\\`]*\\\`|%x\\([^)]*\\)"
+count=$("${GREP_RN[@]}" -e "$backtick_pattern" "$PROJECT_DIR" 2>/dev/null | \
+  (grep -E -v '#\{' || true) | count_lines)
 if [ "$count" -gt 0 ]; then
   print_finding "warning" "$count" "Backtick command execution" "Prefer system with argv array and validate inputs"
-  show_detailed_finding '\`[^`]*\`|%x\([^)]*\)' 3
+  show_detailed_finding "$backtick_pattern" 3
 fi
 
 print_subheader "system/exec with single string (shell)"
-count=$("${GREP_RN[@]}" -e "(^|[^A-Za-z0-9_])(system|exec|Open3\.(capture2|capture3|popen3))\((['\"]).*\1\)" "$PROJECT_DIR" 2>/dev/null | \
-  (grep -E -v "," || true) | count_lines)
+single_string_shell_pattern="(^|[^A-Za-z0-9_])(system|exec|spawn|IO\\.popen|Open3\\.(capture2|capture3|capture2e|capture3e|popen2|popen2e|popen3))\\([[:space:]]*['\"][^,)]*['\"][[:space:]]*\\)"
+count=$("${GREP_RN[@]}" -e "$single_string_shell_pattern" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
 if [ "$count" -gt 0 ]; then
   print_finding "critical" "$count" "Shell invocation risk (single-string)" "Use argv array: system('cmd', arg1, ...)"
-  show_detailed_finding "(^|[^A-Za-z0-9_])(system|exec|Open3\.(capture2|capture3|popen3))\(" 3
+  show_detailed_finding "$single_string_shell_pattern" 3
+fi
+
+print_subheader "Shell interpreter argv with -c/command mode"
+shell_argv_pattern="(^|[^A-Za-z0-9_])(system|exec|spawn|IO\\.popen|Open3\\.(capture2|capture3|capture2e|capture3e|popen2|popen2e|popen3))\\([[:space:]]*['\"](sh|bash|cmd([.]exe)?|powershell([.]exe)?|pwsh([.]exe)?)['\"][[:space:]]*,[[:space:]]*['\"](-?c|/[cC]|-[Cc]ommand|-[Ee]ncoded[Cc]ommand)['\"]"
+count=$("${GREP_RN[@]}" -e "$shell_argv_pattern" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+if [ "$count" -gt 0 ]; then
+  print_finding "critical" "$count" "Shell interpreter command mode" "Avoid shell -c/command mode with dynamic input; pass argv directly to the target executable"
+  show_detailed_finding "$shell_argv_pattern" 3
 fi
 
 print_subheader "TLS verify disabled"
