@@ -1453,6 +1453,14 @@ if [ "$count" -gt 0 ]; then
   show_detailed_finding "\\b(gets|strcpy|strcat|sprintf|scanf)\\s*\\(" 5
 fi
 
+print_subheader "Shell command execution APIs"
+shell_exec_pattern="\\b(std::)?system\\s*\\(|\\bpopen\\s*\\(|\\bShellExecute(A|W)?\\s*\\("
+count=$(search_count "$shell_exec_pattern")
+if [ "$count" -gt 0 ]; then
+  print_finding "critical" "$count" "Shell command execution API used" "Avoid shell invocation; pass argv directly through execve/posix_spawn or a platform API with strict input validation"
+  show_detailed_finding "$shell_exec_pattern" 5
+fi
+
 print_subheader "reinterpret_cast/const_cast occurrences"
 count=$(search_count "reinterpret_cast<|const_cast<")
 if [ "$count" -gt 5 ]; then print_finding "warning" "$count" "Many low-level casts - scrutinize for UB"; fi

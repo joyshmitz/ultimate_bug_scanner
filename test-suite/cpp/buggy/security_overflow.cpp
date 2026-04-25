@@ -1,4 +1,5 @@
 #include <cstring>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>

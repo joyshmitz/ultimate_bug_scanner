@@ -34,7 +34,7 @@ MODULE_PATH_TEMPLATE="$REPO_RAW/modules/ubs-%s.sh"
 
 # Known-good module digests (sha256) for supply-chain verification.
 declare -A MODULE_CHECKSUMS=(
-  [cpp]='0227e3b3f2ad0729787eb726c752e6b0d5208f8c31fb5a9570a2df186c573e7b'
+  [cpp]='baf91c8ef31acde9e17de7665a12b4fc02cf9f3127bd512b5925aa59b48effff'
   [csharp]='958d85f0fc862076fe5fb979a065220f5af80bd2ea5078d60f0a546d2b90995c'
   [elixir]='476279666bf7171a93756e3afa17c246aa6fae2e925e163e543d1277fc3b8fa8'
   [golang]='be4ba3941e174d5c2cddd8aa6b95f94420b7b2b26f97fc65131aa133ab0409e3'
