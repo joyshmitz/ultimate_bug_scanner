@@ -1401,6 +1401,61 @@
       }
     },
     {
+      "id": "rust-string-allocations-buggy",
+      "description": "Rust needless string allocations should be reported as executable code.",
+      "path": "test-suite/rust/buggy/string_allocations.rs",
+      "language": "rust",
+      "tags": [
+        "rust",
+        "strings",
+        "buggy"
+      ],
+      "ubs_bin": "../modules/ubs-rust.sh",
+      "args": [
+        "--no-cargo",
+        "--only=6"
+      ],
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "info": {
+            "min": 2
+          }
+        },
+        "require_substrings": [
+          "to_owned().to_string() chain - simplify",
+          "format!(literal) allocates - use .to_string()"
+        ]
+      }
+    },
+    {
+      "id": "rust-string-allocation-mentions-clean",
+      "description": "Rust string allocation mentions and interpolating format! calls should not be reported as format!(literal) smells.",
+      "path": "test-suite/rust/clean/string_allocation_mentions.rs",
+      "language": "rust",
+      "tags": [
+        "rust",
+        "strings",
+        "clean"
+      ],
+      "ubs_bin": "../modules/ubs-rust.sh",
+      "args": [
+        "--no-cargo",
+        "--only=6"
+      ],
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "info": {
+            "max": 0
+          },
+          "warning": {
+            "max": 0
+          }
+        }
+      }
+    },
+    {
       "id": "rust-security-shell-command-buggy",
       "description": "Rust security fixture with shell -c command execution and a hardcoded Stripe-style secret literal.",
       "path": "test-suite/rust/buggy/security_injection.rs",

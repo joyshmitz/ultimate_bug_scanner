@@ -1354,6 +1354,223 @@ collect_samples_loop_context() {
   printf ']'
 }
 
+rust_format_literal_matches() {
+  [[ "$have_python3" -eq 1 ]] || return 1
+  python3 - "$PROJECT_DIR" <<'PY'
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+
+
+def rust_files(path: Path):
+    if path.is_file():
+        if path.suffix == ".rs":
+            yield path
+        return
+    skip_dirs = {".git", "target", ".cargo", "node_modules"}
+    for child in path.rglob("*.rs"):
+        if skip_dirs.intersection(child.parts):
+            continue
+        yield child
+
+
+def line_number(text: str, offset: int) -> int:
+    return text.count("\n", 0, offset) + 1
+
+
+def is_ident(ch: str) -> bool:
+    return ch == "_" or ch.isalnum()
+
+
+def skip_ws(text: str, idx: int, end: int) -> int:
+    while idx < end and text[idx].isspace():
+        idx += 1
+    return idx
+
+
+def parse_raw_string(text: str, idx: int, end: int):
+    start = idx
+    if idx < end and text[idx] == "b":
+        idx += 1
+    if idx >= end or text[idx] != "r":
+        return None
+    idx += 1
+    hashes = 0
+    while idx < end and text[idx] == "#":
+        hashes += 1
+        idx += 1
+    if idx >= end or text[idx] != '"':
+        return None
+    content_start = idx + 1
+    close = '"' + ("#" * hashes)
+    close_at = text.find(close, content_start)
+    if close_at < 0 or close_at >= end:
+        return None
+    return close_at + len(close), text[content_start:close_at], start
+
+
+def parse_cooked_string(text: str, idx: int, end: int):
+    start = idx
+    if idx < end and text[idx] == "b":
+        idx += 1
+    if idx >= end or text[idx] != '"':
+        return None
+    idx += 1
+    content = []
+    while idx < end:
+        ch = text[idx]
+        if ch == "\\":
+            if idx + 1 < end:
+                content.append(ch)
+                content.append(text[idx + 1])
+                idx += 2
+                continue
+        if ch == '"':
+            return idx + 1, "".join(content), start
+        content.append(ch)
+        idx += 1
+    return None
+
+
+def parse_string_literal(text: str, idx: int, end: int):
+    return parse_raw_string(text, idx, end) or parse_cooked_string(text, idx, end)
+
+
+def skip_comment_string_or_char(text: str, idx: int, end: int) -> int:
+    if text.startswith("//", idx):
+        nl = text.find("\n", idx + 2, end)
+        return end if nl < 0 else nl
+    if text.startswith("/*", idx):
+        close = text.find("*/", idx + 2, end)
+        return end if close < 0 else close + 2
+    parsed = parse_string_literal(text, idx, end)
+    if parsed:
+        return parsed[0]
+    if text[idx] == "'":
+        idx += 1
+        while idx < end:
+            if text[idx] == "\\":
+                idx += 2
+                continue
+            if text[idx] == "'":
+                return idx + 1
+            if text[idx] == "\n":
+                return idx
+            idx += 1
+    return idx
+
+
+def find_matching_paren(text: str, open_idx: int) -> int:
+    depth = 0
+    idx = open_idx
+    end = len(text)
+    while idx < end:
+        skipped = skip_comment_string_or_char(text, idx, end)
+        if skipped != idx:
+            idx = skipped
+            continue
+        ch = text[idx]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return idx
+        idx += 1
+    return -1
+
+
+def iter_format_literal_lines(path: Path, text: str):
+    idx = 0
+    end = len(text)
+    lines = text.splitlines()
+    while idx < end:
+        skipped = skip_comment_string_or_char(text, idx, end)
+        if skipped != idx:
+            idx = skipped
+            continue
+        if text.startswith("format!", idx) and (idx == 0 or not is_ident(text[idx - 1])):
+            cursor = skip_ws(text, idx + len("format!"), end)
+            if cursor < end and text[cursor] == "(":
+                close = find_matching_paren(text, cursor)
+                if close > cursor:
+                    arg = skip_ws(text, cursor + 1, close)
+                    parsed = parse_string_literal(text, arg, close)
+                    if parsed:
+                        literal_end, content, _ = parsed
+                        rest = skip_ws(text, literal_end, close)
+                        if rest < close and text[rest] == ",":
+                            rest = skip_ws(text, rest + 1, close)
+                        if rest == close and "{" not in content and "}" not in content:
+                            line = line_number(text, idx)
+                            code = lines[line - 1].strip() if 0 < line <= len(lines) else ""
+                            if "ubs:ignore" not in code:
+                                yield line, code
+                    idx = close + 1
+                    continue
+        idx += 1
+
+
+seen = set()
+for path in rust_files(root):
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        continue
+    for line, code in iter_format_literal_lines(path, text):
+        key = (str(path), line)
+        if key in seen:
+            continue
+        seen.add(key)
+        print(f"{path}:{line}:{code}")
+PY
+}
+
+count_format_literal_matches() {
+  if [[ "$have_python3" -eq 1 ]]; then
+    rust_format_literal_matches | count_lines || true
+  else
+    "${GREP_RN[@]}" -e "format!\(\s*([rR]?#?\"[^\{\}]*\"#?)\s*,?\s*\)" "$PROJECT_DIR" 2>/dev/null | count_lines || true
+  fi
+}
+
+show_format_literal_examples() {
+  local limit="${1:-$DETAIL_LIMIT}"
+  local printed=0
+  if [[ "$have_python3" -eq 1 ]]; then
+    while IFS= read -r rawline; do
+      [[ -z "$rawline" ]] && continue
+      parse_grep_line "$rawline" || continue
+      print_code_sample "$PARSED_FILE" "$PARSED_LINE" "$PARSED_CODE"
+      printed=$((printed + 1))
+      [[ $printed -ge $limit || $printed -ge $MAX_DETAILED ]] && break
+    done < <(rust_format_literal_matches | head -n "$limit")
+  else
+    show_detailed_finding "format!\(\s*([rR]?#?\"[^\{\}]*\"#?)\s*,?\s*\)" "$limit"
+    return $?
+  fi
+  [[ "$printed" -gt 0 ]]
+}
+
+collect_samples_format_literal() {
+  local limit="${1:-$DETAIL_LIMIT}"
+  if [[ "$have_python3" -ne 1 ]]; then
+    collect_samples_rg "format!\(\s*([rR]?#?\"[^\{\}]*\"#?)\s*,?\s*\)" "$limit"
+    return
+  fi
+  mapfile -t lines < <(rust_format_literal_matches | head -n "$limit")
+  printf '['
+  local i=0
+  local line
+  for line in "${lines[@]}"; do
+    [[ $i -gt 0 ]] && printf ','
+    printf '"%s"' "$(printf '%s' "$line" | json_escape)"
+    i=$((i + 1))
+  done
+  printf ']'
+}
+
 begin_scan_section(){ if [[ "$DISABLE_PIPEFAIL_DURING_SCAN" -eq 1 ]]; then set +o pipefail; fi; set +e; trap - ERR; }
 end_scan_section(){ trap on_err ERR; set -e; if [[ "$DISABLE_PIPEFAIL_DURING_SCAN" -eq 1 ]]; then set -o pipefail; fi; }
 
@@ -2724,14 +2941,22 @@ print_category "Detects: needless allocations, format!(literal), to_owned().to_s
   "Unnecessary allocations and conversions reduce performance"
 
 print_subheader "to_owned().to_string() chain"
-to_owned_to_string=$(( $(ast_search '$X.to_owned().to_string()' || echo 0) + $("${GREP_RN[@]}" -e "\.to_owned\(\)\\.to_string\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true) ))
-if [ "$to_owned_to_string" -gt 0 ]; then print_finding "info" "$to_owned_to_string" "to_owned().to_string() chain - simplify"; add_finding "info" "$to_owned_to_string" "to_owned().to_string() chain - simplify" "" "${CATEGORY_NAME[6]}"; fi
+# shellcheck disable=SC2016
+to_owned_patterns=('$X.to_owned().to_string()')
+to_owned_to_string=$(count_ast_or_rg "\.to_owned\(\)\.to_string\(" "${to_owned_patterns[@]}")
+if [ "$to_owned_to_string" -gt 0 ]; then
+  print_finding "info" "$to_owned_to_string" "to_owned().to_string() chain - simplify"
+  show_ast_pattern_examples 3 "${to_owned_patterns[@]}" || show_detailed_finding "\.to_owned\(\)\.to_string\(" 3
+  add_finding "info" "$to_owned_to_string" "to_owned().to_string() chain - simplify" "" "${CATEGORY_NAME[6]}" "$(collect_samples_ast_or_rg "\.to_owned\(\)\.to_string\(" 3 "${to_owned_patterns[@]}")"
+fi
 
 print_subheader "format!(\"literal\") with no placeholders"
-fmt_lit=$(( $(ast_search 'format!($S)' || echo 0) ))
-fmt_lit_rg=$("${GREP_RN[@]}" -e "format!\(\s*([rR]?#?\"[^\{\}]*\"#?)\s*\)" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
-fmt_total=$((fmt_lit + fmt_lit_rg))
-if [ "$fmt_total" -gt 0 ]; then print_finding "info" "$fmt_total" "format!(literal) allocates - use .to_string()"; add_finding "info" "$fmt_total" "format!(literal) allocates - use .to_string()" "" "${CATEGORY_NAME[6]}"; fi
+fmt_total=$(count_format_literal_matches)
+if [ "$fmt_total" -gt 0 ]; then
+  print_finding "info" "$fmt_total" "format!(literal) allocates - use .to_string()"
+  show_format_literal_examples 3 || true
+  add_finding "info" "$fmt_total" "format!(literal) allocates - use .to_string()" "" "${CATEGORY_NAME[6]}" "$(collect_samples_format_literal 3)"
+fi
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
