@@ -2213,8 +2213,98 @@ tick
 tick
 
 print_subheader "Process/posix shell usage"
-count=$("${GREP_RN[@]}" -e "Process\\(|posix_spawn|system\\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
- if [[ "${count:-0}" -gt 0 ]]; then print_finding "info" "$count" "Shell/process invocation present - validate inputs"; show_detailed_finding "Process\\(|posix_spawn|system\\(" 5; else print_finding "good" "No Process/system invocations detected"; fi
+shell_report=$(
+python3 - "$PROJECT_DIR" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+base = root if root.is_dir() else root.parent
+skip_dirs = {'.git', '.hg', '.svn', '.venv', 'DerivedData', 'build', 'dist', 'vendor'}
+shell_path = re.compile(r"/(?:usr/)?bin/(?:sh|bash|zsh)$")
+name = r"[A-Za-z_][A-Za-z0-9_]*"
+
+def should_skip(path: Path) -> bool:
+    try:
+        parts = path.relative_to(base).parts
+    except ValueError:
+        parts = path.parts
+    return any(part in skip_dirs for part in parts)
+
+def iter_swift_files(path: Path):
+    if path.is_file():
+        if path.suffix == '.swift':
+            yield path
+        return
+    for candidate in path.rglob('*.swift'):
+        if candidate.is_file() and not should_skip(candidate):
+            yield candidate
+
+def rel(path: Path) -> str:
+    try:
+        return str(path.relative_to(base))
+    except ValueError:
+        return path.name
+
+findings = []
+for path in iter_swift_files(root):
+    try:
+        lines = path.read_text(encoding='utf-8').splitlines()
+    except (UnicodeDecodeError, OSError):
+        continue
+    processes = {}
+    for line_no, raw in enumerate(lines, start=1):
+        code = raw.split('//', 1)[0].strip()
+        if not code:
+            continue
+        if re.search(r"\b(?:system|popen)\s*\(", code):
+            findings.append(f"{rel(path)}:{line_no} system/popen executes through a shell")
+        if re.search(r'\bposix_spawnp?\s*\(', code) and re.search(r'"/(?:usr/)?bin/(?:sh|bash|zsh)"', code) and '"-c"' in code:
+            findings.append(f"{rel(path)}:{line_no} posix_spawn shell -c")
+
+        created = re.search(rf"\b(?:let|var)\s+({name})\s*=\s*Process\s*\(", code)
+        if created:
+            processes.setdefault(created.group(1), {'line': line_no})
+
+        executable = re.search(rf"\b({name})\.(?:executableURL|launchPath)\s*=\s*(?:URL\s*\(\s*fileURLWithPath:\s*)?[\"']([^\"']+)[\"']", code)
+        if executable:
+            proc = processes.setdefault(executable.group(1), {'line': line_no})
+            proc['line'] = min(proc.get('line', line_no), line_no)
+            proc['shell'] = shell_path.search(executable.group(2)) is not None
+            proc['env'] = executable.group(2) == '/usr/bin/env'
+
+        arguments = re.search(rf"\b({name})\.arguments\s*=\s*\[([^\]]*)", code)
+        if arguments:
+            proc = processes.setdefault(arguments.group(1), {'line': line_no})
+            proc['line'] = min(proc.get('line', line_no), line_no)
+            blob = arguments.group(2)
+            proc['command_mode'] = '"-c"' in blob or "'-c'" in blob
+            proc['env_shell'] = re.search(r'["\'](?:sh|bash|zsh)["\']', blob) is not None
+
+    for proc_name, proc in processes.items():
+        if proc.get('command_mode') and (proc.get('shell') or (proc.get('env') and proc.get('env_shell'))):
+            findings.append(f"{rel(path)}:{proc.get('line', 1)} Process {proc_name} uses shell -c")
+
+samples = '; '.join(findings[:3])
+print(f"{len(findings)}\t{samples}")
+PY
+)
+IFS=$'\t' read -r shell_critical shell_samples <<<"$shell_report"
+shell_critical=${shell_critical:-0}
+if [[ "${shell_critical:-0}" -gt 0 ]]; then
+  desc="Avoid /bin/sh -c, system(), and popen(); use a fixed executableURL plus an argument array."
+  [[ -n "${shell_samples:-}" ]] && desc+=" Examples: $shell_samples"
+  print_finding "critical" "$shell_critical" "Shell-backed Process/system execution" "$desc"
+fi
+count=$("${GREP_RN[@]}" -e "Process\\(|posix_spawn|system\\(|popen\\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+info_count=$(( count - shell_critical ))
+if [[ "${info_count:-0}" -gt 0 ]]; then
+  print_finding "info" "$info_count" "Other Process/posix invocations present - validate fixed executables and arguments"
+  show_detailed_finding "Process\\(|posix_spawn|system\\(|popen\\(" 5
+elif [[ "${shell_critical:-0}" -eq 0 ]]; then
+  print_finding "good" "No Process/system invocations detected"
+fi
 fi
 
 # CATEGORY 7

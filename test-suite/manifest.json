@@ -1403,6 +1403,54 @@
       }
     },
     {
+      "id": "swift-security-process-buggy",
+      "description": "Swift shell-backed Process/system execution should be treated as critical.",
+      "path": "test-suite/swift/buggy/process_shell.swift",
+      "language": "swift",
+      "tags": [
+        "swift",
+        "security",
+        "buggy"
+      ],
+      "args": [
+        "--only=swift",
+        "--fail-on-warning"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "critical": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "Shell-backed Process/system execution"
+        ]
+      }
+    },
+    {
+      "id": "swift-security-process-clean",
+      "description": "Swift Process with fixed executable and argument array remains non-critical.",
+      "path": "test-suite/swift/clean/process_shell.swift",
+      "language": "swift",
+      "tags": [
+        "swift",
+        "security",
+        "clean"
+      ],
+      "args": [
+        "--only=swift"
+      ],
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "critical": {
+            "max": 0
+          }
+        }
+      }
+    },
+    {
       "id": "swift-type-narrowing-buggy",
       "description": "Swift guard let clauses that log but continue execution, leading to unsafe optional usage.",
       "path": "test-suite/swift/type_narrowing/buggy",
