@@ -1194,12 +1194,20 @@
         "totals": {
           "critical": {
             "min": 3
+          },
+          "warning": {
+            "min": 5
           }
         },
         "require_substrings": [
           "mem::transmute usage",
           "mem::zeroed usage",
-          "Unchecked UB-adjacent APIs used"
+          "Unchecked UB-adjacent APIs used",
+          "CStr unchecked conversion used",
+          "Unchecked indexing APIs in use",
+          "UTF-8 unchecked conversion APIs",
+          "slice::from_raw_parts(_mut) usage",
+          "Unsafe Send/Sync implementations"
         ]
       }
     },

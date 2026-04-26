@@ -1876,7 +1876,9 @@ YAML
 id: rust.cstr-from-bytes-unchecked
 language: rust
 rule:
-  pattern: std::ffi::CStr::from_bytes_with_nul_unchecked($$)
+  any:
+    - pattern: std::ffi::CStr::from_bytes_with_nul_unchecked($BYTES)
+    - pattern: CStr::from_bytes_with_nul_unchecked($BYTES)
 severity: warning
 message: "from_bytes_with_nul_unchecked requires strict invariants; prefer checked API"
 YAML
@@ -1886,8 +1888,8 @@ id: rust.unsafe-auto-traits
 language: rust
 rule:
   any:
-    - pattern: unsafe impl Send for $T { $$ }
-    - pattern: unsafe impl Sync for $T { $$ }
+    - pattern: unsafe impl Send for $T { $$$BODY }
+    - pattern: unsafe impl Sync for $T { $$$BODY }
 severity: warning
 message: "Unsafe impl of Send/Sync; ensure type invariants truly uphold thread-safety"
 YAML
@@ -1908,8 +1910,10 @@ id: rust.from-utf8-unchecked
 language: rust
 rule:
   any:
-    - pattern: std::str::from_utf8_unchecked($$)
-    - pattern: std::string::String::from_utf8_unchecked($$)
+    - pattern: std::str::from_utf8_unchecked($BYTES)
+    - pattern: str::from_utf8_unchecked($BYTES)
+    - pattern: std::string::String::from_utf8_unchecked($BYTES)
+    - pattern: String::from_utf8_unchecked($BYTES)
 severity: warning
 message: "from_utf8_unchecked requires strict invariants; prefer checked APIs"
 YAML
@@ -1919,8 +1923,10 @@ id: rust.slice-from-raw-parts
 language: rust
 rule:
   any:
-    - pattern: std::slice::from_raw_parts($$)
-    - pattern: std::slice::from_raw_parts_mut($$)
+    - pattern: std::slice::from_raw_parts($PTR, $LEN)
+    - pattern: std::slice::from_raw_parts_mut($PTR, $LEN)
+    - pattern: slice::from_raw_parts($PTR, $LEN)
+    - pattern: slice::from_raw_parts_mut($PTR, $LEN)
 severity: warning
 message: "from_raw_parts may violate aliasing/lifetime rules; validate invariants"
 YAML
@@ -2897,20 +2903,50 @@ if [ "$forget_count" -gt 0 ]; then
 fi
 
 print_subheader "CStr::from_bytes_with_nul_unchecked"
-cstr_count=$(( $(ast_search 'std::ffi::CStr::from_bytes_with_nul_unchecked($$)' || echo 0) + $("${GREP_RN[@]}" -e "from_bytes_with_nul_unchecked\(" "$PROJECT_DIR" 2>/dev/null | count_lines || true) ))
-if [ "$cstr_count" -gt 0 ]; then print_finding "warning" "$cstr_count" "CStr unchecked conversion used"; add_finding "warning" "$cstr_count" "CStr unchecked conversion used" "" "${CATEGORY_NAME[2]}"; fi
+# shellcheck disable=SC2016
+cstr_patterns=('std::ffi::CStr::from_bytes_with_nul_unchecked($BYTES)' 'CStr::from_bytes_with_nul_unchecked($BYTES)')
+cstr_count=$(count_ast_or_rg 'from_bytes_with_nul_unchecked\(' "${cstr_patterns[@]}")
+if [ "$cstr_count" -gt 0 ]; then
+  print_finding "warning" "$cstr_count" "CStr unchecked conversion used"
+  show_ast_pattern_examples 3 "${cstr_patterns[@]}" || show_detailed_finding "from_bytes_with_nul_unchecked\(" 3
+  add_finding "warning" "$cstr_count" "CStr unchecked conversion used" "" "${CATEGORY_NAME[2]}" "$(collect_samples_ast_or_rg "from_bytes_with_nul_unchecked\(" 3 "${cstr_patterns[@]}")"
+fi
 
 print_subheader "get_unchecked / from_utf8_unchecked / from_raw_parts"
-guc_count=$(( $(ast_search '$S.get_unchecked($I)' || echo 0) + $(ast_search '$S.get_unchecked_mut($I)' || echo 0) ))
-u8u_count=$(( $(ast_search 'std::str::from_utf8_unchecked($$)' || echo 0) + $(ast_search 'std::string::String::from_utf8_unchecked($$)' || echo 0) ))
-raw_parts=$(( $(ast_search 'std::slice::from_raw_parts($$)' || echo 0) + $(ast_search 'std::slice::from_raw_parts_mut($$)' || echo 0) ))
-if [ "$guc_count" -gt 0 ]; then print_finding "warning" "$guc_count" "Unchecked indexing APIs in use"; add_finding "warning" "$guc_count" "Unchecked indexing APIs in use" "" "${CATEGORY_NAME[2]}"; fi
-if [ "$u8u_count" -gt 0 ]; then print_finding "warning" "$u8u_count" "UTF-8 unchecked conversion APIs"; add_finding "warning" "$u8u_count" "UTF-8 unchecked conversion APIs" "" "${CATEGORY_NAME[2]}"; fi
-if [ "$raw_parts" -gt 0 ]; then print_finding "warning" "$raw_parts" "slice::from_raw_parts(_mut) usage"; add_finding "warning" "$raw_parts" "slice::from_raw_parts(_mut) usage" "" "${CATEGORY_NAME[2]}"; fi
+# shellcheck disable=SC2016
+get_unchecked_patterns=('$S.get_unchecked($I)' '$S.get_unchecked_mut($I)')
+# shellcheck disable=SC2016
+utf8_unchecked_patterns=('std::str::from_utf8_unchecked($BYTES)' 'str::from_utf8_unchecked($BYTES)' 'std::string::String::from_utf8_unchecked($BYTES)' 'String::from_utf8_unchecked($BYTES)')
+# shellcheck disable=SC2016
+raw_parts_patterns=('std::slice::from_raw_parts($PTR, $LEN)' 'std::slice::from_raw_parts_mut($PTR, $LEN)' 'slice::from_raw_parts($PTR, $LEN)' 'slice::from_raw_parts_mut($PTR, $LEN)')
+guc_count=$(count_ast_or_rg '\.get_unchecked(_mut)?\(' "${get_unchecked_patterns[@]}")
+u8u_count=$(count_ast_or_rg 'from_utf8_unchecked\(' "${utf8_unchecked_patterns[@]}")
+raw_parts=$(count_ast_or_rg 'from_raw_parts(_mut)?\(' "${raw_parts_patterns[@]}")
+if [ "$guc_count" -gt 0 ]; then
+  print_finding "warning" "$guc_count" "Unchecked indexing APIs in use"
+  show_ast_pattern_examples 3 "${get_unchecked_patterns[@]}" || show_detailed_finding "\.get_unchecked(_mut)?\(" 3
+  add_finding "warning" "$guc_count" "Unchecked indexing APIs in use" "" "${CATEGORY_NAME[2]}" "$(collect_samples_ast_or_rg "\.get_unchecked(_mut)?\(" 3 "${get_unchecked_patterns[@]}")"
+fi
+if [ "$u8u_count" -gt 0 ]; then
+  print_finding "warning" "$u8u_count" "UTF-8 unchecked conversion APIs"
+  show_ast_pattern_examples 3 "${utf8_unchecked_patterns[@]}" || show_detailed_finding "from_utf8_unchecked\(" 3
+  add_finding "warning" "$u8u_count" "UTF-8 unchecked conversion APIs" "" "${CATEGORY_NAME[2]}" "$(collect_samples_ast_or_rg "from_utf8_unchecked\(" 3 "${utf8_unchecked_patterns[@]}")"
+fi
+if [ "$raw_parts" -gt 0 ]; then
+  print_finding "warning" "$raw_parts" "slice::from_raw_parts(_mut) usage"
+  show_ast_pattern_examples 3 "${raw_parts_patterns[@]}" || show_detailed_finding "from_raw_parts(_mut)?\(" 3
+  add_finding "warning" "$raw_parts" "slice::from_raw_parts(_mut) usage" "" "${CATEGORY_NAME[2]}" "$(collect_samples_ast_or_rg "from_raw_parts(_mut)?\(" 3 "${raw_parts_patterns[@]}")"
+fi
 
 print_subheader "Unsafe Send/Sync impls"
-autos_count=$(( $(ast_search 'unsafe impl Send for $T { $$ }' || echo 0) + $(ast_search 'unsafe impl Sync for $T { $$ }' || echo 0) ))
-if [ "$autos_count" -gt 0 ]; then print_finding "warning" "$autos_count" "Unsafe Send/Sync implementations"; add_finding "warning" "$autos_count" "Unsafe Send/Sync implementations" "" "${CATEGORY_NAME[2]}"; fi
+# shellcheck disable=SC2016
+unsafe_auto_trait_patterns=('unsafe impl Send for $T { $$$BODY }' 'unsafe impl Sync for $T { $$$BODY }')
+autos_count=$(count_ast_or_rg 'unsafe[[:space:]]+impl[[:space:]]+(Send|Sync)[[:space:]]+for' "${unsafe_auto_trait_patterns[@]}")
+if [ "$autos_count" -gt 0 ]; then
+  print_finding "warning" "$autos_count" "Unsafe Send/Sync implementations"
+  show_ast_pattern_examples 3 "${unsafe_auto_trait_patterns[@]}" || show_detailed_finding "unsafe[[:space:]]+impl[[:space:]]+(Send|Sync)[[:space:]]+for" 3
+  add_finding "warning" "$autos_count" "Unsafe Send/Sync implementations" "" "${CATEGORY_NAME[2]}" "$(collect_samples_ast_or_rg "unsafe[[:space:]]+impl[[:space:]]+(Send|Sync)[[:space:]]+for" 3 "${unsafe_auto_trait_patterns[@]}")"
+fi
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
