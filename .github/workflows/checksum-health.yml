@@ -77,6 +77,17 @@ jobs:
             echo "modules_healthy=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Verify v$UBS_VERSION tag matches main's MODULE_CHECKSUMS (issue #45)
+        id: verify_version_tag_drift
+        run: |
+          # Need full tags to resolve `git show v$UBS_VERSION:modules/...`
+          git fetch --tags --depth=1 origin || true
+          if ./scripts/check-version-tag-drift.sh; then
+            echo "tag_drift_healthy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_drift_healthy=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Check for existing issue
         id: check_issue
         if: steps.verify.outputs.healthy == 'false' || steps.verify_modules.outputs.modules_healthy == 'false'

@@ -23,6 +23,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # The version-tag drift check below resolves
+          # `git show v$UBS_VERSION:modules/...`, so we need the tag.
+          # Full history is overkill — fetch tags only.
+          fetch-depth: 1
+
+      - name: Fetch tags for version-tag drift check
+        run: git fetch --tags --depth=1 origin || true
 
       - name: Syntax-check shell scripts
         run: |
@@ -31,6 +39,15 @@ jobs:
 
       - name: Verify entrypoint loads
         run: ./ubs --help >/dev/null
+
+      - name: Verify v$UBS_VERSION tag matches MODULE_CHECKSUMS (issue #45)
+        # Catches the recurring distribution-drift bug: install.sh
+        # ships the latest `main` runner, but `ubs` fetches modules
+        # from v${UBS_VERSION}. If main's MODULE_CHECKSUMS table
+        # advances past the tag without bumping UBS_VERSION, every
+        # fresh install hits checksum mismatch on `ubs doctor --fix`.
+        # See https://github.com/Dicklesworthstone/ultimate_bug_scanner/issues/45
+        run: ./scripts/check-version-tag-drift.sh
 
   test:
     runs-on: ubuntu-latest
