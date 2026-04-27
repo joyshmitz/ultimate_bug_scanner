@@ -1580,7 +1580,7 @@
           }
         },
         "require_substrings": [
-          "Shell command execution via -c",
+          "Shell command execution via -c/-lc",
           "Possible hardcoded secrets"
         ]
       }

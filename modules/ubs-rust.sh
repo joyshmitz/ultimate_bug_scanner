@@ -2416,10 +2416,30 @@ rule:
   any:
     - pattern: std::process::Command::new($S).arg("-c").arg($CMD)
     - pattern: Command::new($S).arg("-c").arg($CMD)
+    - pattern: std::process::Command::new($S).arg("-lc").arg($CMD)
+    - pattern: Command::new($S).arg("-lc").arg($CMD)
     - pattern: std::process::Command::new($S).arg("/C").arg($CMD)
     - pattern: Command::new($S).arg("/C").arg($CMD)
+    - pattern: std::process::Command::new($S).arg("/c").arg($CMD)
+    - pattern: Command::new($S).arg("/c").arg($CMD)
+    - pattern: std::process::Command::new($S).args(["-c", $CMD])
+    - pattern: Command::new($S).args(["-c", $CMD])
+    - pattern: std::process::Command::new($S).args(["-lc", $CMD])
+    - pattern: Command::new($S).args(["-lc", $CMD])
+    - pattern: std::process::Command::new($S).args(["/C", $CMD])
+    - pattern: Command::new($S).args(["/C", $CMD])
+    - pattern: std::process::Command::new($S).args(["/c", $CMD])
+    - pattern: Command::new($S).args(["/c", $CMD])
+    - pattern: std::process::Command::new($S).args(&["-c", $CMD])
+    - pattern: Command::new($S).args(&["-c", $CMD])
+    - pattern: std::process::Command::new($S).args(&["-lc", $CMD])
+    - pattern: Command::new($S).args(&["-lc", $CMD])
+    - pattern: std::process::Command::new($S).args(&["/C", $CMD])
+    - pattern: Command::new($S).args(&["/C", $CMD])
+    - pattern: std::process::Command::new($S).args(&["/c", $CMD])
+    - pattern: Command::new($S).args(&["/c", $CMD])
 severity: error
-message: "Command::new(shell).arg(\"-c\", ...) invites shell injection; avoid shells or strictly validate input."
+message: "Command::new(shell) with -c/-lc invites shell injection; avoid shells or strictly validate input."
 YAML
 
   cat >"$AST_RULE_DIR/regex-new-unwrap.yml" <<'YAML'
@@ -3357,21 +3377,41 @@ tls_insecure=$(( $(ast_search 'reqwest::ClientBuilder::new().danger_accept_inval
   + $("${GREP_RN[@]}" -e "TlsConnector::builder\(\)\\.danger_accept_invalid_certs\(true\)" "$PROJECT_DIR" 2>/dev/null | count_lines || true) ))
 if [ "$tls_insecure" -gt 0 ]; then print_finding "critical" "$tls_insecure" "TLS verification disabled"; add_finding "critical" "$tls_insecure" "TLS verification disabled" "" "${CATEGORY_NAME[8]}"; fi
 
-print_subheader "Shell command execution through -c"
+print_subheader "Shell command execution through -c/-lc"
 # shellcheck disable=SC2016  # ast-grep metavariables are literal patterns.
 shell_command_ast=$(( \
   $(ast_search 'std::process::Command::new($S).arg("-c").arg($CMD)' || echo 0) \
   + $(ast_search 'Command::new($S).arg("-c").arg($CMD)' || echo 0) \
+  + $(ast_search 'std::process::Command::new($S).arg("-lc").arg($CMD)' || echo 0) \
+  + $(ast_search 'Command::new($S).arg("-lc").arg($CMD)' || echo 0) \
   + $(ast_search 'std::process::Command::new($S).arg("/C").arg($CMD)' || echo 0) \
-  + $(ast_search 'Command::new($S).arg("/C").arg($CMD)' || echo 0) ))
-shell_command_rg=$("${GREP_RN[@]}" -e "(std::process::)?Command::new\([^)]*\)[^;]*\.arg\(\"(-c|/C)\"\)" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
+  + $(ast_search 'Command::new($S).arg("/C").arg($CMD)' || echo 0) \
+  + $(ast_search 'std::process::Command::new($S).arg("/c").arg($CMD)' || echo 0) \
+  + $(ast_search 'Command::new($S).arg("/c").arg($CMD)' || echo 0) \
+  + $(ast_search 'std::process::Command::new($S).args(["-c", $CMD])' || echo 0) \
+  + $(ast_search 'Command::new($S).args(["-c", $CMD])' || echo 0) \
+  + $(ast_search 'std::process::Command::new($S).args(["-lc", $CMD])' || echo 0) \
+  + $(ast_search 'Command::new($S).args(["-lc", $CMD])' || echo 0) \
+  + $(ast_search 'std::process::Command::new($S).args(["/C", $CMD])' || echo 0) \
+  + $(ast_search 'Command::new($S).args(["/C", $CMD])' || echo 0) \
+  + $(ast_search 'std::process::Command::new($S).args(["/c", $CMD])' || echo 0) \
+  + $(ast_search 'Command::new($S).args(["/c", $CMD])' || echo 0) \
+  + $(ast_search 'std::process::Command::new($S).args(&["-c", $CMD])' || echo 0) \
+  + $(ast_search 'Command::new($S).args(&["-c", $CMD])' || echo 0) \
+  + $(ast_search 'std::process::Command::new($S).args(&["-lc", $CMD])' || echo 0) \
+  + $(ast_search 'Command::new($S).args(&["-lc", $CMD])' || echo 0) \
+  + $(ast_search 'std::process::Command::new($S).args(&["/C", $CMD])' || echo 0) \
+  + $(ast_search 'Command::new($S).args(&["/C", $CMD])' || echo 0) \
+  + $(ast_search 'std::process::Command::new($S).args(&["/c", $CMD])' || echo 0) \
+  + $(ast_search 'Command::new($S).args(&["/c", $CMD])' || echo 0) ))
+shell_command_rg=$("${GREP_RN[@]}" -e "(std::process::)?Command::new\([^)]*\)[^;]*\.(arg|args)\([^;]*(\"(-c|-lc|/C|/c)\")" "$PROJECT_DIR" 2>/dev/null | count_lines || true)
 shell_command=$(( shell_command_ast>0?shell_command_ast:shell_command_rg ))
 if [ "$shell_command" -gt 0 ]; then
-  print_finding "critical" "$shell_command" "Shell command execution via -c" "Avoid shell interpreters; pass argv directly or strictly validate/allowlist input"
-  show_detailed_finding "(std::process::)?Command::new\([^)]*\)[^;]*\.arg\(\"(-c|/C)\"\)" 5
-  add_finding "critical" "$shell_command" "Shell command execution via -c" "Avoid shell interpreters; pass argv directly or strictly validate/allowlist input" "${CATEGORY_NAME[8]}" "$(collect_samples_rg "(std::process::)?Command::new\([^)]*\)[^;]*\.arg\(\"(-c|/C)\"\)" 5)"
+  print_finding "critical" "$shell_command" "Shell command execution via -c/-lc" "Avoid shell interpreters; pass argv directly or strictly validate/allowlist input"
+  show_detailed_finding "(std::process::)?Command::new\([^)]*\)[^;]*\.(arg|args)\([^;]*(\"(-c|-lc|/C|/c)\")" 5
+  add_finding "critical" "$shell_command" "Shell command execution via -c/-lc" "Avoid shell interpreters; pass argv directly or strictly validate/allowlist input" "${CATEGORY_NAME[8]}" "$(collect_samples_rg "(std::process::)?Command::new\([^)]*\)[^;]*\.(arg|args)\([^;]*(\"(-c|-lc|/C|/c)\")" 5)"
 else
-  print_finding "good" "No shell -c Command usage detected"
+  print_finding "good" "No shell -c/-lc Command usage detected"
 fi
 
 print_subheader "Plain http:// URLs"
