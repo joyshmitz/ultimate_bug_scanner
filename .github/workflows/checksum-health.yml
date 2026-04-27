@@ -21,7 +21,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          # The version-tag drift check below resolves
+          # `git show v$UBS_VERSION:modules/...`. The default fetch-depth
+          # of 1 doesn't include tag refs, so use 0 (full history +
+          # tags) — silently missing tags would let drift slip past
+          # the gate.
+          fetch-depth: 0
 
       - name: Verify SHA256SUMS integrity
         id: verify
@@ -80,8 +85,6 @@ jobs:
       - name: Verify v$UBS_VERSION tag matches main's MODULE_CHECKSUMS (issue #45)
         id: verify_version_tag_drift
         run: |
-          # Need full tags to resolve `git show v$UBS_VERSION:modules/...`
-          git fetch --tags --depth=1 origin || true
           if ./scripts/check-version-tag-drift.sh; then
             echo "tag_drift_healthy=true" >> "$GITHUB_OUTPUT"
           else
@@ -90,7 +93,7 @@ jobs:
 
       - name: Check for existing issue
         id: check_issue
-        if: steps.verify.outputs.healthy == 'false' || steps.verify_modules.outputs.modules_healthy == 'false'
+        if: steps.verify.outputs.healthy == 'false' || steps.verify_modules.outputs.modules_healthy == 'false' || steps.verify_version_tag_drift.outputs.tag_drift_healthy == 'false'
         run: |
           # Check if there's already an open issue with our label
           EXISTING=$(gh issue list --label "checksum-drift" --state open --json number --jq '.[0].number // empty')
@@ -104,7 +107,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Ensure checksum-drift label exists
-        if: (steps.verify.outputs.healthy == 'false' || steps.verify_modules.outputs.modules_healthy == 'false') && steps.check_issue.outputs.existing_issue == ''
+        if: (steps.verify.outputs.healthy == 'false' || steps.verify_modules.outputs.modules_healthy == 'false' || steps.verify_version_tag_drift.outputs.tag_drift_healthy == 'false') && steps.check_issue.outputs.existing_issue == ''
         run: |
           # Create label if it doesn't exist (ignore error if it already exists)
           gh label create "checksum-drift" --description "Automated: SHA256SUMS out of sync" --color "B60205" 2>/dev/null || true
@@ -112,49 +115,49 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create issue for checksum drift
-        if: (steps.verify.outputs.healthy == 'false' || steps.verify_modules.outputs.modules_healthy == 'false') && steps.check_issue.outputs.existing_issue == ''
+        if: (steps.verify.outputs.healthy == 'false' || steps.verify_modules.outputs.modules_healthy == 'false' || steps.verify_version_tag_drift.outputs.tag_drift_healthy == 'false') && steps.check_issue.outputs.existing_issue == ''
         run: |
           gh issue create \
             --title "URGENT: Checksum drift detected - users cannot install" \
             --label "checksum-drift" \
             --body "$(cat <<'EOF'
-## Checksum Health Check Failed
+          ## Checksum Health Check Failed
 
-The scheduled health check detected that `SHA256SUMS` does not match the actual file checksums.
+          The scheduled health check detected that `SHA256SUMS` does not match the actual file checksums.
 
-**This means users attempting to install UBS will get checksum mismatch errors and installation will fail.**
+          **This means users attempting to install UBS will get checksum mismatch errors and installation will fail.**
 
-### Current Status
+          ### Current Status
 
-| File | Expected | Actual | Status |
-|------|----------|--------|--------|
-| `ubs` | `${{ steps.verify.outputs.expected_ubs }}` | `${{ steps.verify.outputs.actual_ubs }}` | ${{ steps.verify.outputs.expected_ubs == steps.verify.outputs.actual_ubs && '✅' || '❌' }} |
-| `install.sh` | `${{ steps.verify.outputs.expected_install }}` | `${{ steps.verify.outputs.actual_install }}` | ${{ steps.verify.outputs.expected_install == steps.verify.outputs.actual_install && '✅' || '❌' }} |
+          | File | Expected | Actual | Status |
+          |------|----------|--------|--------|
+          | `ubs` | `${{ steps.verify.outputs.expected_ubs }}` | `${{ steps.verify.outputs.actual_ubs }}` | ${{ steps.verify.outputs.expected_ubs == steps.verify.outputs.actual_ubs && '✅' || '❌' }} |
+          | `install.sh` | `${{ steps.verify.outputs.expected_install }}` | `${{ steps.verify.outputs.actual_install }}` | ${{ steps.verify.outputs.expected_install == steps.verify.outputs.actual_install && '✅' || '❌' }} |
 
-### Fix Required
+          ### Fix Required
 
-Run the checksum update script and push:
+          Run the checksum update script and push:
 
-```bash
-./scripts/update_checksums.sh
-git add SHA256SUMS ubs
-git commit -m "fix(checksum): sync SHA256SUMS"
-git push
-```
+          ```bash
+          ./scripts/update_checksums.sh
+          git add SHA256SUMS ubs
+          git commit -m "fix(checksum): sync SHA256SUMS"
+          git push
+          ```
 
-### Why This Happened
+          ### Why This Happened
 
-The Checksum Sync workflow should auto-fix this on push to main. If you're seeing this issue, the workflow may have failed silently. Check the [Checksum Sync workflow runs](https://github.com/${{ github.repository }}/actions/workflows/checksum-sync.yml).
+          The Checksum Sync workflow should auto-fix this on push to main. If you're seeing this issue, the workflow may have failed silently. Check the [Checksum Sync workflow runs](https://github.com/${{ github.repository }}/actions/workflows/checksum-sync.yml).
 
----
-*This issue was automatically created by the Checksum Health Check workflow.*
-EOF
+          ---
+          *This issue was automatically created by the Checksum Health Check workflow.*
+          EOF
           )"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Fail if unhealthy
-        if: steps.verify.outputs.healthy == 'false' || steps.verify_modules.outputs.modules_healthy == 'false'
+        if: steps.verify.outputs.healthy == 'false' || steps.verify_modules.outputs.modules_healthy == 'false' || steps.verify_version_tag_drift.outputs.tag_drift_healthy == 'false'
         run: |
           echo "::error::Checksum drift detected! SHA256SUMS is out of sync."
           exit 1

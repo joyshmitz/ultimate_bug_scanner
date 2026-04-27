@@ -25,12 +25,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           # The version-tag drift check below resolves
-          # `git show v$UBS_VERSION:modules/...`, so we need the tag.
-          # Full history is overkill — fetch tags only.
-          fetch-depth: 1
-
-      - name: Fetch tags for version-tag drift check
-        run: git fetch --tags --depth=1 origin || true
+          # `git show v$UBS_VERSION:modules/...`. The default fetch-depth
+          # of 1 doesn't include tag refs, so use 0 (full history +
+          # tags) — the repo is small enough that the cost is
+          # negligible and silently missing tags would let drift slip
+          # past the check.
+          fetch-depth: 0
 
       - name: Syntax-check shell scripts
         run: |
