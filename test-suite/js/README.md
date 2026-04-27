@@ -3,6 +3,7 @@
 - `buggy/security.js` contains eval, innerHTML, and missing error handling.
 - `clean/security.js` shows the safe equivalents.
 - `buggy/resource-lifecycle.js` and `clean/resource-lifecycle.js` cover browser resource cleanup, including Blob/Object URL revocation.
+- `async_errors/use-effect-async-*.tsx` covers TypeScript/React effects that accidentally return a Promise by passing an async callback directly to `useEffect`.
 - `security/dangerously-set-html-*.tsx` covers TypeScript/React XSS risk from unsanitized `dangerouslySetInnerHTML`.
 - `security/message-event-origin-*.ts` covers TypeScript cross-origin message receivers that trust `event.data` without validating `event.origin`.
 - `security/post-message-*.ts` covers TypeScript cross-origin messaging leaks from wildcard `postMessage` target origins.
