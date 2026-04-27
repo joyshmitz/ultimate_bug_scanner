@@ -3395,6 +3395,90 @@ if [ "$async_predicate_count" -gt 0 ]; then
   done <<<"$async_predicate_samples"
 fi
 
+print_subheader "async callbacks passed to timers"
+async_timer_report=$(python3 - "$PROJECT_DIR" <<'PY' 2>/dev/null
+import os
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+exts = {'.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'}
+skip_dirs = {'.git', 'node_modules', 'dist', 'build', 'coverage', '.next', '.cache', '.turbo'}
+
+start_re = re.compile(r'\b(?:setTimeout|setInterval|queueMicrotask|requestAnimationFrame)\s*\(')
+async_timer_re = re.compile(
+    r'\b(setTimeout|setInterval|queueMicrotask|requestAnimationFrame)\s*\(\s*(?:async\b|async\s+function\b)',
+    re.DOTALL,
+)
+
+issues = []
+if root.is_file():
+    candidates = [root]
+    sample_root = root.parent
+else:
+    candidates = []
+    sample_root = root
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+        for fname in filenames:
+            candidates.append(Path(dirpath) / fname)
+
+for path in candidates:
+    if path.suffix.lower() not in exts:
+        continue
+    try:
+        lines = path.read_text(encoding='utf-8', errors='ignore').splitlines()
+    except Exception:
+        continue
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("//", "/*", "*")):
+            continue
+        if not start_re.search(line):
+            continue
+        callback_lines = []
+        paren_balance = 0
+        saw_timer = False
+        for callback_idx in range(idx, min(len(lines), idx + 16)):
+            current = lines[callback_idx].strip()
+            callback_lines.append(current)
+            if start_re.search(current):
+                saw_timer = True
+            if saw_timer:
+                paren_balance += current.count('(') - current.count(')')
+            if saw_timer and callback_idx > idx and paren_balance <= 0:
+                break
+        callback_text = ' '.join(callback_lines)
+        if 'ubs:ignore' in callback_text:
+            continue
+        match = async_timer_re.search(callback_text)
+        if not match:
+            continue
+        try:
+            rel = path.relative_to(sample_root)
+        except ValueError:
+            rel = path
+        issues.append((str(rel), idx + 1, match.group(1), stripped.replace('\t', ' ')))
+
+print(len(issues))
+for entry in issues[:25]:
+    print('\t'.join(str(part) for part in entry))
+PY
+)
+async_timer_count=$(printf '%s\n' "$async_timer_report" | head -n1 | awk 'END{print $0+0}')
+async_timer_samples=$(printf '%s\n' "$async_timer_report" | tail -n +2)
+if [ "$async_timer_count" -gt 0 ]; then
+  print_finding "warning" "$async_timer_count" "async timer callback is not awaited" "Wrap the async body in void run().catch(...) or handle rejections inside the timer callback"
+  sample_limit=3
+  while IFS=$'\t' read -r sample_path sample_line sample_method sample_text; do
+    [ -z "$sample_path" ] && continue
+    print_code_sample "$sample_path" "$sample_line" "$sample_text"
+    sample_limit=$((sample_limit - 1))
+    [ "$sample_limit" -le 0 ] && break
+  done <<<"$async_timer_samples"
+fi
+
 run_async_error_checks
 run_hooks_dependency_checks
 run_type_narrowing_checks

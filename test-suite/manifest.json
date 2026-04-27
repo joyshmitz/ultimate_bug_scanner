@@ -540,6 +540,62 @@
       }
     },
     {
+      "id": "js-typescript-async-timer-buggy",
+      "description": "TypeScript timer APIs should not receive async callbacks directly because the timer ignores the returned Promise.",
+      "path": "test-suite/js/async_errors/async-timer-buggy.ts",
+      "language": "js",
+      "tags": [
+        "js",
+        "typescript",
+        "async",
+        "buggy"
+      ],
+      "args": [
+        "--only=js",
+        "--fail-on-warning",
+        "--skip=1,2,3,4,6,7,8,9,10,11,12,13,14,15,16,17,18,19"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "warning": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "async timer callback is not awaited"
+        ]
+      }
+    },
+    {
+      "id": "js-typescript-async-timer-clean",
+      "description": "TypeScript timer callbacks that explicitly handle async errors should stay clean.",
+      "path": "test-suite/js/async_errors/async-timer-clean.ts",
+      "language": "js",
+      "tags": [
+        "js",
+        "typescript",
+        "async",
+        "clean"
+      ],
+      "args": [
+        "--only=js",
+        "--fail-on-warning",
+        "--skip=1,2,3,4,6,7,8,9,10,11,12,13,14,15,16,17,18,19"
+      ],
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "critical": {
+            "max": 0
+          },
+          "warning": {
+            "max": 0
+          }
+        }
+      }
+    },
+    {
       "id": "js-typescript-promise-all-map-return-buggy",
       "description": "TypeScript Promise.all over a block-bodied map callback should require the callback to return the promise.",
       "path": "test-suite/js/async_errors/promise-all-map-buggy.ts",
