@@ -3410,6 +3410,90 @@ if [ "$post_message_count" -gt 0 ]; then
   done <<<"$post_message_samples"
 fi
 
+print_subheader "message event listener without origin check"
+message_origin_report=$(python3 - "$PROJECT_DIR" <<'PY' 2>/dev/null
+import os
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+exts = {'.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'}
+skip_dirs = {'.git', 'node_modules', 'dist', 'build', 'coverage', '.next', '.cache', '.turbo'}
+
+listener_start_re = re.compile(r'(?<![\w$.])(?:window|globalThis)\s*\.\s*(?:addEventListener\s*\(|onmessage\s*=)')
+message_arg_re = re.compile(r'\baddEventListener\s*\(\s*(?:"message"|\'message\'|`message`)')
+onmessage_re = re.compile(r'\bonmessage\s*=')
+origin_re = re.compile(r'\.origin\b|\borigin\s*(?:===?|!==?|in\b)|\btrustedOrigin\b|\ballowedOrigins\b')
+
+issues = []
+if root.is_file():
+    candidates = [root]
+    sample_root = root.parent
+else:
+    candidates = []
+    sample_root = root
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+        for fname in filenames:
+            candidates.append(Path(dirpath) / fname)
+
+for path in candidates:
+    if path.suffix.lower() not in exts:
+        continue
+    try:
+        lines = path.read_text(encoding='utf-8', errors='ignore').splitlines()
+    except Exception:
+        continue
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("//", "/*", "*")):
+            continue
+        if not listener_start_re.search(line):
+            continue
+        listener_lines = []
+        paren_balance = 0
+        brace_balance = 0
+        saw_listener = False
+        for listener_idx in range(idx, min(len(lines), idx + 25)):
+            current = lines[listener_idx].strip()
+            listener_lines.append(current)
+            if 'addEventListener' in current or 'onmessage' in current:
+                saw_listener = True
+            if saw_listener:
+                paren_balance += current.count('(') - current.count(')')
+                brace_balance += current.count('{') - current.count('}')
+            if saw_listener and listener_idx > idx and paren_balance <= 0 and brace_balance <= 0:
+                break
+        listener_text = ' '.join(listener_lines)
+        if not (onmessage_re.search(listener_text) or message_arg_re.search(listener_text)):
+            continue
+        if 'ubs:ignore' in listener_text or origin_re.search(listener_text):
+            continue
+        try:
+            rel = path.relative_to(sample_root)
+        except ValueError:
+            rel = path
+        issues.append((str(rel), idx + 1, stripped.replace('\t', ' ')))
+
+print(len(issues))
+for entry in issues[:25]:
+    print('\t'.join(str(part) for part in entry))
+PY
+)
+message_origin_count=$(printf '%s\n' "$message_origin_report" | head -n1 | awk 'END{print $0+0}')
+message_origin_samples=$(printf '%s\n' "$message_origin_report" | tail -n +2)
+if [ "$message_origin_count" -gt 0 ]; then
+  print_finding "warning" "$message_origin_count" "message event listener without origin check" "Validate event.origin against a trusted allowlist before using event.data"
+  sample_limit=3
+  while IFS=$'\t' read -r sample_path sample_line sample_text; do
+    [ -z "$sample_path" ] && continue
+    print_code_sample "$sample_path" "$sample_line" "$sample_text"
+    sample_limit=$((sample_limit - 1))
+    [ "$sample_limit" -le 0 ] && break
+  done <<<"$message_origin_samples"
+fi
+
 print_subheader "Hardcoded secrets/credentials"
 count=$("${GREP_RNI[@]}" -e "\b(password|api_?key|secret|token)\b[[:space:]]*[:=][[:space:]]*['\"]([^'\"]+)['\"]" "$PROJECT_DIR" 2>/dev/null |   (grep -v "process\.env" || true) | count_lines)
 if [ "$count" -gt 0 ]; then

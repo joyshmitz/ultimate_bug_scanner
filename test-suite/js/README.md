@@ -4,6 +4,7 @@
 - `clean/security.js` shows the safe equivalents.
 - `buggy/resource-lifecycle.js` and `clean/resource-lifecycle.js` cover browser resource cleanup, including Blob/Object URL revocation.
 - `security/dangerously-set-html-*.tsx` covers TypeScript/React XSS risk from unsanitized `dangerouslySetInnerHTML`.
+- `security/message-event-origin-*.ts` covers TypeScript cross-origin message receivers that trust `event.data` without validating `event.origin`.
 - `security/post-message-*.ts` covers TypeScript cross-origin messaging leaks from wildcard `postMessage` target origins.
 - `security/target-blank-*.tsx` covers TypeScript/React reverse-tabnabbing protection for JSX `target="_blank"` links.
 - `security/window-open-*.ts` covers TypeScript reverse-tabnabbing protection for `window.open(..., "_blank")`.
