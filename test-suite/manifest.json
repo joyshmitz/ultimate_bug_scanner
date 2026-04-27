@@ -1203,6 +1203,7 @@
           "mem::transmute usage",
           "mem::zeroed usage",
           "Unchecked UB-adjacent APIs used",
+          "Direct indexing/slicing may panic",
           "CStr unchecked conversion used",
           "Unchecked indexing APIs in use",
           "UTF-8 unchecked conversion APIs",

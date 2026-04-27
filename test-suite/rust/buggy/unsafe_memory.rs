@@ -37,6 +37,14 @@ fn unchecked_index_mut(values: &mut [u8], index: usize) -> &mut u8 {
     unsafe { values.get_unchecked_mut(index) }
 }
 
+fn direct_index_panic(values: &[u8], index: usize) -> u8 {
+    values[index]
+}
+
+fn direct_slice_panic(input: &str, end: usize) -> &str {
+    &input[..end]
+}
+
 fn unchecked_utf8(bytes: &[u8]) -> &str {
     unsafe { str::from_utf8_unchecked(bytes) }
 }

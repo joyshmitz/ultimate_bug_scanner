@@ -7,14 +7,19 @@
 /// `slice::from_raw_parts(ptr, len)`, and `unsafe impl Send for Handle {}`.
 /// Text may show `impl Drop for Bomb { fn drop(&mut self) { panic!("boom") } }`
 /// or `self.detail.expect("boom")` without creating executable Drop code.
+/// Likewise, `values[index]` and `&input[..end]` are documentation examples here.
 fn documentation_mentions_are_not_code() -> &'static str {
     "core::hint::unreachable_unchecked(), value.unwrap_unchecked(), \
-     String::from_utf8_unchecked(bytes), panic!(), expect(), \
+     String::from_utf8_unchecked(bytes), panic!(), expect(), values[index], \
      and unsafe impl Sync for Handle {} are text here"
 }
 
 fn safe_zeroed_constructor_name() -> PageData {
     PageData::zeroed()
+}
+
+fn checked_lookup(values: &[u8], index: usize) -> Option<u8> {
+    values.get(index).copied()
 }
 
 struct PageData;

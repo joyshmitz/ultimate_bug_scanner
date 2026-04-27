@@ -3687,7 +3687,7 @@ fi
 # ═══════════════════════════════════════════════════════════════════════════
 if category_enabled 21; then
 print_header "21. PANIC SURFACES & UNWINDING"
-print_category "Detects: assert macros, unreachable_unchecked/unwrap_unchecked, panic/unwrap inside Drop" \
+print_category "Detects: assert macros, direct indexing, unreachable_unchecked/unwrap_unchecked, panic/unwrap inside Drop" \
   "Panics in destructors or UB hints can crash/abort in subtle ways; these can slip past linting depending on cfg/features"
 
 print_subheader "assert!/assert_eq!/assert_ne! inventory"
@@ -3708,6 +3708,17 @@ if [ "$uu" -gt 0 ]; then
   show_ast_pattern_examples 3 'std::hint::unreachable_unchecked()' 'core::hint::unreachable_unchecked()' '$X.unwrap_unchecked()' || true
   # shellcheck disable=SC2016
   add_finding "critical" "$uu" "Unchecked UB-adjacent APIs used" "unreachable_unchecked is UB if reached; unwrap_unchecked requires strict invariants" "${CATEGORY_NAME[21]}" "$(collect_samples_ast_or_rg "unreachable_unchecked\(\)|unwrap_unchecked\(" 3 'std::hint::unreachable_unchecked()' 'core::hint::unreachable_unchecked()' '$X.unwrap_unchecked()')"
+fi
+
+print_subheader "direct indexing / slicing panic surfaces"
+# shellcheck disable=SC2016
+direct_index=$(count_ast_or_rg '\[[^]]+\]' '$X[$I]')
+if [ "$direct_index" -gt 0 ]; then
+  print_finding "warning" "$direct_index" "Direct indexing/slicing may panic" "Use get()/get_mut(), checked ranges, or prior bounds checks when indexes can come from input"
+  # shellcheck disable=SC2016
+  show_ast_pattern_examples 3 '$X[$I]' || show_detailed_finding '\[[^]]+\]' 3
+  # shellcheck disable=SC2016
+  add_finding "warning" "$direct_index" "Direct indexing/slicing may panic" "Use get()/get_mut(), checked ranges, or prior bounds checks when indexes can come from input" "${CATEGORY_NAME[21]}" "$(collect_samples_ast_or_rg '\[[^]]+\]' 3 '$X[$I]')"
 fi
 
 print_subheader "panic!/unwrap/expect inside Drop"
