@@ -3332,6 +3332,84 @@ if [ "$target_blank_count" -gt 0 ]; then
   done <<<"$target_blank_samples"
 fi
 
+print_subheader "postMessage wildcard target origin"
+post_message_report=$(python3 - "$PROJECT_DIR" <<'PY' 2>/dev/null
+import os
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+exts = {'.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'}
+skip_dirs = {'.git', 'node_modules', 'dist', 'build', 'coverage', '.next', '.cache', '.turbo'}
+
+call_re = re.compile(r'\bpostMessage\s*\(')
+wildcard_origin_re = re.compile(r'\bpostMessage\s*\([\s\S]*?,\s*(?:"\*"|\'\*\'|`\*`)\s*(?:[,)]|$)')
+
+issues = []
+if root.is_file():
+    candidates = [root]
+    sample_root = root.parent
+else:
+    candidates = []
+    sample_root = root
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+        for fname in filenames:
+            candidates.append(Path(dirpath) / fname)
+
+for path in candidates:
+    if path.suffix.lower() not in exts:
+        continue
+    try:
+        lines = path.read_text(encoding='utf-8', errors='ignore').splitlines()
+    except Exception:
+        continue
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("//", "/*", "*")):
+            continue
+        if not call_re.search(line):
+            continue
+        call_lines = []
+        paren_balance = 0
+        saw_call = False
+        for call_idx in range(idx, min(len(lines), idx + 10)):
+            current = lines[call_idx].strip()
+            call_lines.append(current)
+            if 'postMessage' in current:
+                saw_call = True
+            if saw_call:
+                paren_balance += current.count('(') - current.count(')')
+            if saw_call and paren_balance <= 0:
+                break
+        call_text = ' '.join(call_lines)
+        if 'ubs:ignore' in call_text or not wildcard_origin_re.search(call_text):
+            continue
+        try:
+            rel = path.relative_to(sample_root)
+        except ValueError:
+            rel = path
+        issues.append((str(rel), idx + 1, stripped.replace('\t', ' ')))
+
+print(len(issues))
+for entry in issues[:25]:
+    print('\t'.join(str(part) for part in entry))
+PY
+)
+post_message_count=$(printf '%s\n' "$post_message_report" | head -n1 | awk 'END{print $0+0}')
+post_message_samples=$(printf '%s\n' "$post_message_report" | tail -n +2)
+if [ "$post_message_count" -gt 0 ]; then
+  print_finding "warning" "$post_message_count" "postMessage uses wildcard target origin" "Pass a specific trusted origin instead of '*' to avoid cross-origin data leaks"
+  sample_limit=3
+  while IFS=$'\t' read -r sample_path sample_line sample_text; do
+    [ -z "$sample_path" ] && continue
+    print_code_sample "$sample_path" "$sample_line" "$sample_text"
+    sample_limit=$((sample_limit - 1))
+    [ "$sample_limit" -le 0 ] && break
+  done <<<"$post_message_samples"
+fi
+
 print_subheader "Hardcoded secrets/credentials"
 count=$("${GREP_RNI[@]}" -e "\b(password|api_?key|secret|token)\b[[:space:]]*[:=][[:space:]]*['\"]([^'\"]+)['\"]" "$PROJECT_DIR" 2>/dev/null |   (grep -v "process\.env" || true) | count_lines)
 if [ "$count" -gt 0 ]; then
