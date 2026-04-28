@@ -5,6 +5,7 @@
 - `buggy/resource-lifecycle.js` and `clean/resource-lifecycle.js` cover browser resource cleanup, including Blob/Object URL revocation.
 - `async_errors/async-event-listener-*.ts` covers TypeScript event listeners that accidentally pass an `async` callback to `addEventListener`, leaving rejections unhandled.
 - `async_errors/async-foreach-*.ts` covers TypeScript async loops that accidentally pass an `async` callback to `forEach`, which cannot be awaited by the caller.
+- `async_errors/async-map-ignored-*.ts` covers TypeScript `map(async ...)` loops whose returned promises are ignored instead of awaited or returned.
 - `async_errors/async-predicate-*.ts` covers TypeScript async predicates passed to `filter`/`some`/`every`/`find`, where the Promise is treated as truthy.
 - `async_errors/async-promise-executor-*.ts` covers TypeScript `new Promise(async ...)` executors that drop thrown errors.
 - `async_errors/async-timer-*.ts` covers TypeScript timer callbacks that accidentally pass an `async` callback to `setTimeout`/`setInterval`, leaving rejections unhandled.

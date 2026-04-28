@@ -540,6 +540,62 @@
       }
     },
     {
+      "id": "js-typescript-async-map-ignored-buggy",
+      "description": "TypeScript map(async ...) calls should be reported when the generated promises are ignored.",
+      "path": "test-suite/js/async_errors/async-map-ignored-buggy.ts",
+      "language": "js",
+      "tags": [
+        "js",
+        "typescript",
+        "async",
+        "buggy"
+      ],
+      "args": [
+        "--only=js",
+        "--fail-on-warning",
+        "--skip=1,2,3,4,6,7,8,9,10,11,12,13,14,15,16,17,18,19"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "warning": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "async map callback result is ignored"
+        ]
+      }
+    },
+    {
+      "id": "js-typescript-async-map-ignored-clean",
+      "description": "TypeScript map(async ...) calls whose generated promises are saved and awaited should stay clean.",
+      "path": "test-suite/js/async_errors/async-map-ignored-clean.ts",
+      "language": "js",
+      "tags": [
+        "js",
+        "typescript",
+        "async",
+        "clean"
+      ],
+      "args": [
+        "--only=js",
+        "--fail-on-warning",
+        "--skip=1,2,3,4,6,7,8,9,10,11,12,13,14,15,16,17,18,19"
+      ],
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "critical": {
+            "max": 0
+          },
+          "warning": {
+            "max": 0
+          }
+        }
+      }
+    },
+    {
       "id": "js-typescript-async-predicate-buggy",
       "description": "TypeScript async predicates passed to filter/some/every/find should be reported because array predicates do not await promises.",
       "path": "test-suite/js/async_errors/async-predicate-buggy.ts",
