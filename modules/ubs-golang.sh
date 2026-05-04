@@ -4943,6 +4943,247 @@ PY
   )
 }
 
+run_hardcoded_secret_checks() {
+  print_subheader "Hardcoded secrets/credentials"
+  if ! command -v python3 >/dev/null 2>&1; then
+    print_finding "info" 0 "python3 not available" "Install python3 to enable hardcoded secret checks"
+    return
+  fi
+  local printed=0
+  while IFS=$'\t' read -r tag a b c; do
+    case "$tag" in
+      __COUNT__)
+        if [[ "$a" -gt 0 ]]; then
+          print_finding "critical" "$a" "Possible hardcoded secrets" "Use secret managers or required environment variables; do not keep literal defaults for secret env vars"
+        else
+          print_finding "good" "No hardcoded secrets detected"
+        fi
+        ;;
+      __SAMPLE__)
+        if [[ "$printed" -lt "$DETAIL_LIMIT" && "$printed" -lt "$MAX_DETAILED" ]]; then
+          print_code_sample "$a" "$b" "$c"
+          printed=$((printed + 1))
+        fi
+        ;;
+    esac
+  done < <(python3 - "$PROJECT_DIR" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(sys.argv[1]).resolve()
+BASE_DIR = ROOT if ROOT.is_dir() else ROOT.parent
+SKIP_DIRS = {'.git', 'vendor', '.cache', 'bin', 'dist'}
+EXTS = {'.go'}
+STRING_RE = re.compile(r'"(?:\\.|[^"\\])*"|`[^`]*`')
+SECRET_WORD_RE = re.compile(
+    r'(?:'
+    r'\bsecret\b|\bpassword\b|\bpasswd\b|\bpwd\b|\btoken\b|\bapi[_-]?key\b|'
+    r'\bprivate[_-]?key\b|\bclient[_-]?secret\b|\bwebhook[_-]?secret\b|'
+    r'\bjwt[_-]?secret\b|\baccess[_-]?token\b|\brefresh[_-]?token\b|'
+    r'\bsession[_-]?secret\b|\bcookie[_-]?secret\b|\bsigning[_-]?secret\b|'
+    r'\bencryption[_-]?key\b|\bcredential(?:s)?\b'
+    r')'
+)
+SECRET_PHRASE_RE = re.compile(
+    r'\b(?:'
+    r'api\s+key|private\s+key|client\s+secret|webhook\s+secret|jwt\s+secret|'
+    r'access\s+token|refresh\s+token|session\s+secret|cookie\s+secret|'
+    r'signing\s+secret|encryption\s+key'
+    r')\b'
+)
+PLACEHOLDERS = {
+    'example', 'sample', 'dummy', 'placeholder', 'changeme', 'change_me',
+    'not_a_secret', 'your_secret_here', 'your-api-key', 'localhost',
+    '127.0.0.1', 'http://localhost', 'https://localhost', 'https://example.com',
+}
+ASSIGN_RE = re.compile(r'\b(?:const|var)?\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?::=|=)\s*(.+)')
+FIELD_RE = re.compile(r'(?:^|[{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.+)')
+MAP_KEY_RE = re.compile(r'(?:^|[{,]\s*)(' + STRING_RE.pattern + r')\s*:\s*(.+)')
+MAP_ASSIGN_RE = re.compile(r'\[[^\]]*(' + STRING_RE.pattern + r')[^\]]*\]\s*=\s*(.+)')
+ENV_DEFAULT_RE = re.compile(
+    r'\b(?:getenv|getEnv|envOrDefault|envDefault|envFallback|defaultEnv|mustGetenvDefault)\s*\(\s*('
+    + STRING_RE.pattern + r')\s*,\s*(.+)\)',
+)
+OS_GETENV_RE = re.compile(r'\bos\.Getenv\s*\(\s*(' + STRING_RE.pattern + r')\s*\)')
+
+def should_skip(path: Path) -> bool:
+    return any(part in SKIP_DIRS for part in path.parts)
+
+def iter_files(root: Path):
+    if root.is_file():
+        if root.suffix.lower() in EXTS:
+            yield root
+        return
+    for path in root.rglob('*'):
+        if path.is_file() and path.suffix.lower() in EXTS and not should_skip(path):
+            yield path
+
+def relpath(path: Path) -> str:
+    try:
+        return str(path.relative_to(BASE_DIR))
+    except ValueError:
+        return str(path)
+
+def strip_comments(line: str) -> str:
+    out = []
+    quote = ''
+    escape = False
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        nxt = line[i + 1] if i + 1 < len(line) else ''
+        if quote:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == '\\':
+                escape = True
+            elif ch == quote:
+                quote = ''
+            i += 1
+            continue
+        if ch in ('"', '`'):
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == '/' and nxt == '/':
+            break
+        if ch == '/' and nxt == '*':
+            end = line.find('*/', i + 2)
+            if end == -1:
+                break
+            i = end + 2
+            continue
+        out.append(ch)
+        i += 1
+    return ''.join(out)
+
+def statement_from(lines, start_idx, max_lines=10):
+    parts = []
+    balance = 0
+    for idx in range(start_idx, min(len(lines), start_idx + max_lines)):
+        current = strip_comments(lines[idx]).strip()
+        if not current:
+            continue
+        parts.append(current)
+        balance += current.count('(') + current.count('{') - current.count(')') - current.count('}')
+        if balance <= 0 and (
+            current.endswith(',') or current.endswith('}') or current == ')' or current == '}'
+        ):
+            break
+        if idx == start_idx and balance <= 0 and not current.endswith(('{', '(', ',')):
+            break
+    return ' '.join(parts)
+
+def source_line(lines, line_no):
+    idx = line_no - 1
+    if 0 <= idx < len(lines):
+        return lines[idx].strip().replace('\t', ' ')
+    return ''
+
+def has_ignore(lines, idx):
+    return 'ubs:ignore' in lines[idx] or (idx > 0 and 'ubs:ignore' in lines[idx - 1])
+
+def normalize_name(name: str) -> str:
+    text = str(name or '').strip().strip('"`')
+    text = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', text)
+    text = re.sub(r'[^A-Za-z0-9]+', '_', text)
+    return text.lower().strip('_')
+
+def is_sensitive_name(name: str) -> bool:
+    normalized = normalize_name(name)
+    spaced = normalized.replace('_', ' ')
+    return bool(SECRET_WORD_RE.search(normalized) or SECRET_WORD_RE.search(spaced) or SECRET_PHRASE_RE.search(spaced))
+
+def unquote_literal(token: str) -> str:
+    token = token.strip()
+    if len(token) >= 2 and token[0] in ('"', '`') and token[-1] == token[0]:
+        return token[1:-1]
+    return ''
+
+def risky_literal(token: str) -> bool:
+    value = unquote_literal(token).strip()
+    lowered = value.lower()
+    if len(value) < 8:
+        return False
+    if lowered in PLACEHOLDERS:
+        return False
+    if 'example.' in lowered or lowered.startswith(('example_', 'sample_', 'dummy_')):
+        return False
+    return bool(re.search(r'[A-Za-z0-9]', value))
+
+def first_risky_literal(expr: str) -> str:
+    for match in STRING_RE.finditer(expr):
+        token = match.group(0)
+        if risky_literal(token):
+            return token
+    return ''
+
+def direct_risky_literal(expr: str) -> str:
+    match = re.match(r'\s*(' + STRING_RE.pattern + r')', expr)
+    if not match:
+        return ''
+    token = match.group(1)
+    return token if risky_literal(token) else ''
+
+def assignment_literal(statement: str) -> bool:
+    for regex in (ASSIGN_RE, FIELD_RE):
+        for match in regex.finditer(statement):
+            if is_sensitive_name(match.group(1)) and direct_risky_literal(match.group(2)):
+                return True
+    for match in MAP_KEY_RE.finditer(statement):
+        if is_sensitive_name(unquote_literal(match.group(1))) and direct_risky_literal(match.group(2)):
+            return True
+    for match in MAP_ASSIGN_RE.finditer(statement):
+        if is_sensitive_name(unquote_literal(match.group(1))) and direct_risky_literal(match.group(2)):
+            return True
+    return False
+
+def env_default_literal(statement: str) -> bool:
+    for match in ENV_DEFAULT_RE.finditer(statement):
+        if is_sensitive_name(unquote_literal(match.group(1))) and first_risky_literal(match.group(2)):
+            return True
+    env_match = OS_GETENV_RE.search(statement)
+    if not env_match or not is_sensitive_name(unquote_literal(env_match.group(1))):
+        return False
+    suffix = statement[env_match.end():]
+    return bool(('cmp.Or' in statement or 'Coalesce' in statement or 'Default' in statement) and first_risky_literal(suffix))
+
+issues = []
+for path in iter_files(ROOT):
+    try:
+        lines = path.read_text(encoding='utf-8', errors='ignore').splitlines()
+    except OSError:
+        continue
+    for idx, line in enumerate(lines):
+        stripped = strip_comments(line).strip()
+        if not stripped or has_ignore(lines, idx):
+            continue
+        if not (is_sensitive_name(stripped) or OS_GETENV_RE.search(stripped)):
+            continue
+        statement = statement_from(lines, idx)
+        if not statement or 'ubs:ignore' in statement:
+            continue
+        if assignment_literal(statement) or env_default_literal(statement):
+            issues.append((relpath(path), idx + 1, source_line(lines, idx + 1)))
+
+deduped = []
+seen = set()
+for item in issues:
+    key = item[:2]
+    if key not in seen:
+        seen.add(key)
+        deduped.append(item)
+
+print(f"__COUNT__\t{len(deduped)}")
+for file_name, line_no, code in deduped[:25]:
+    print(f"__SAMPLE__\t{file_name}\t{line_no}\t{code}")
+PY
+  )
+}
+
 # ═══════════════════════════════════════════════════════════════════════════
 # CATEGORY 9: CRYPTOGRAPHY & SECURITY
 # ═══════════════════════════════════════════════════════════════════════════
@@ -4956,6 +5197,7 @@ count=$(grep_count_scoped "md5|sha1|rc4")
 if [ "$count" -gt 0 ]; then print_finding "warning" "$count" "Weak crypto primitives detected - use SHA-256/512, AES-GCM, etc."; fi
 
 run_security_randomness_checks
+run_hardcoded_secret_checks
 
 print_subheader "TLS InsecureSkipVerify=true"
 count=$([[ "$HAS_AST_GREP" -eq 1 && -f "$AST_JSON" ]] && ast_count "go.tls-insecure-skip" || echo 0)

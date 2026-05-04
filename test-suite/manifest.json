@@ -4897,6 +4897,65 @@
       }
     },
     {
+      "id": "golang-hardcoded-secrets-buggy",
+      "description": "Go services should not hardcode secret literals, config-map secret values, struct secret fields, or env helper fallbacks.",
+      "path": "test-suite/golang/security/hardcoded_secrets_buggy.go",
+      "language": "golang",
+      "tags": [
+        "golang",
+        "security",
+        "secrets",
+        "buggy"
+      ],
+      "args": [
+        "--only=golang",
+        "--fail-on-warning",
+        "--skip=1,2,3,4,5,6,7,8,10,11,12,13,14,15,16,17,18,19,20,21,22"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "critical": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "Possible hardcoded secrets"
+        ]
+      }
+    },
+    {
+      "id": "golang-hardcoded-secrets-clean",
+      "description": "Go services using required env vars and non-secret display defaults should stay clean.",
+      "path": "test-suite/golang/security/hardcoded_secrets_clean.go",
+      "language": "golang",
+      "tags": [
+        "golang",
+        "security",
+        "secrets",
+        "clean"
+      ],
+      "args": [
+        "--only=golang",
+        "--fail-on-warning",
+        "--skip=1,2,3,4,5,6,7,8,10,11,12,13,14,15,16,17,18,19,20,21,22"
+      ],
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "critical": {
+            "max": 0
+          },
+          "warning": {
+            "max": 0
+          }
+        },
+        "forbid_substrings": [
+          "Possible hardcoded secrets"
+        ]
+      }
+    },
+    {
       "id": "golang-random-security-clean",
       "description": "Go crypto/rand-backed security tokens should stay clean while harmless UI math/rand usage remains allowed.",
       "path": "test-suite/golang/security/random_security_clean.go",
@@ -6402,6 +6461,67 @@
         },
         "require_substrings": [
           "Security token generated with non-cryptographic randomness"
+        ]
+      }
+    },
+    {
+      "id": "rust-hardcoded-secrets-buggy",
+      "description": "Rust apps should not hardcode secret const/static/let values, config-map secret values, struct secret fields, or env fallbacks.",
+      "path": "test-suite/rust/buggy/hardcoded_secrets.rs",
+      "language": "rust",
+      "tags": [
+        "rust",
+        "security",
+        "secrets",
+        "buggy"
+      ],
+      "ubs_bin": "../modules/ubs-rust.sh",
+      "args": [
+        "--no-cargo",
+        "--only=8",
+        "--fail-on-warning"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "critical": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "Possible hardcoded secrets"
+        ]
+      }
+    },
+    {
+      "id": "rust-hardcoded-secrets-clean",
+      "description": "Rust apps using required env vars and non-secret display defaults should stay clean.",
+      "path": "test-suite/rust/clean/hardcoded_secrets.rs",
+      "language": "rust",
+      "tags": [
+        "rust",
+        "security",
+        "secrets",
+        "clean"
+      ],
+      "ubs_bin": "../modules/ubs-rust.sh",
+      "args": [
+        "--no-cargo",
+        "--only=8",
+        "--fail-on-warning"
+      ],
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "critical": {
+            "max": 0
+          },
+          "warning": {
+            "max": 0
+          }
+        },
+        "forbid_substrings": [
+          "Possible hardcoded secrets"
         ]
       }
     },
