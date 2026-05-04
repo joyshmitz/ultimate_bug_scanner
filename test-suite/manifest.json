@@ -3204,6 +3204,65 @@
       }
     },
     {
+      "id": "python-hardcoded-secrets-buggy",
+      "description": "Python apps should not hardcode secret literals or os.getenv/os.environ.get fallback secrets.",
+      "path": "test-suite/python/security/hardcoded_secrets_buggy.py",
+      "language": "python",
+      "tags": [
+        "python",
+        "security",
+        "secrets",
+        "buggy"
+      ],
+      "args": [
+        "--only=python",
+        "--fail-on-warning",
+        "--skip=1,2,3,4,5,6,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "critical": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "Potential hardcoded secrets"
+        ]
+      }
+    },
+    {
+      "id": "python-hardcoded-secrets-clean",
+      "description": "Python apps that require secret environment variables and use non-secret display defaults should stay clean.",
+      "path": "test-suite/python/security/hardcoded_secrets_clean.py",
+      "language": "python",
+      "tags": [
+        "python",
+        "security",
+        "secrets",
+        "clean"
+      ],
+      "args": [
+        "--only=python",
+        "--fail-on-warning",
+        "--skip=1,2,3,4,5,6,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23"
+      ],
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "critical": {
+            "max": 0
+          },
+          "warning": {
+            "max": 0
+          }
+        },
+        "forbid_substrings": [
+          "Potential hardcoded secrets"
+        ]
+      }
+    },
+    {
       "id": "python-random-security-buggy",
       "description": "Python security tokens, sessions, OTPs, and keys should not be generated with the non-cryptographic random module.",
       "path": "test-suite/python/security/random_security_buggy.py",

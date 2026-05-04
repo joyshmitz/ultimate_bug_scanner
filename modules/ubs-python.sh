@@ -10192,11 +10192,260 @@ run_security_assert_checks
 run_file_permission_checks
 
 print_subheader "Hardcoded secrets"
-count=$("${GREP_RNI[@]}" -e "(password|api_?key|secret|token)[[:space:]]*[:=][[:space:]]*['\"][^\"']+['\"]" "$PROJECT_DIR" 2>/dev/null | \
-  (grep -vE "#.*(password|api_?key|secret|token)|['\"]\\$" || true) | count_lines)
-if [ "$count" -gt 0 ]; then
-  print_finding "critical" "$count" "Potential hardcoded secrets" "Use secret manager or env vars"
-  show_detailed_finding "(password|api_?key|secret|token)[[:space:]]*[:=][[:space:]]*['\"][^\"']+['\"]" 5
+if ! command -v python3 >/dev/null 2>&1; then
+  print_finding "info" 0 "python3 not available" "Install python3 to enable hardcoded secret checks"
+else
+  hardcoded_secret_report=$(python3 - "$PROJECT_DIR" <<'PY' 2>/dev/null
+import ast
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(sys.argv[1]).resolve()
+BASE_DIR = ROOT if ROOT.is_dir() else ROOT.parent
+SKIP_DIRS = {'.git', '.venv', '__pycache__', 'node_modules', '.mypy_cache', '.pytest_cache', '.ruff_cache', '.cache', 'build', 'dist'}
+EXTS = {'.py', '.pyi', '.pyx'}
+
+SECRET_WORD_RE = re.compile(
+    r'(?:'
+    r'\bsecret\b|\bpassword\b|\bpasswd\b|\bpwd\b|\btoken\b|\bapi[_-]?key\b|'
+    r'\bprivate[_-]?key\b|\bclient[_-]?secret\b|\bwebhook[_-]?secret\b|'
+    r'\bjwt[_-]?secret\b|\baccess[_-]?token\b|\brefresh[_-]?token\b|'
+    r'\bsession[_-]?secret\b|\bcookie[_-]?secret\b|\bsigning[_-]?secret\b|'
+    r'\bencryption[_-]?key\b|\bsecret[_-]?key[_-]?base\b|\bcredential(?:s)?\b'
+    r')'
+)
+SECRET_PHRASE_RE = re.compile(
+    r'\b(?:'
+    r'api\s+key|private\s+key|client\s+secret|webhook\s+secret|jwt\s+secret|'
+    r'access\s+token|refresh\s+token|session\s+secret|cookie\s+secret|'
+    r'signing\s+secret|encryption\s+key|secret\s+key\s+base'
+    r')\b'
+)
+PLACEHOLDERS = {
+    'example', 'sample', 'dummy', 'placeholder', 'changeme', 'change_me',
+    'not_a_secret', 'your_secret_here', 'your-api-key', 'localhost',
+    '127.0.0.1', 'http://localhost', 'https://localhost', 'https://example.com',
+}
+
+def should_skip(path: Path) -> bool:
+    return any(part in SKIP_DIRS for part in path.parts)
+
+def iter_files(root: Path):
+    if root.is_file():
+        if root.suffix.lower() in EXTS:
+            yield root
+        return
+    for path in root.rglob('*'):
+        if path.is_file() and path.suffix.lower() in EXTS and not should_skip(path):
+            yield path
+
+def relpath(path: Path) -> str:
+    try:
+        return str(path.relative_to(BASE_DIR))
+    except ValueError:
+        return str(path)
+
+def source_line(lines, line_no):
+    idx = line_no - 1
+    if 0 <= idx < len(lines):
+        return lines[idx].strip().replace('\t', ' ')
+    return ''
+
+def has_ignore(lines, line_no):
+    idx = line_no - 1
+    return (
+        0 <= idx < len(lines) and 'ubs:ignore' in lines[idx]
+    ) or (
+        0 <= idx - 1 < len(lines) and 'ubs:ignore' in lines[idx - 1]
+    )
+
+def normalize_name(name: str) -> str:
+    text = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', str(name or ''))
+    text = re.sub(r'[^A-Za-z0-9]+', '_', text)
+    return text.lower().strip('_')
+
+def is_sensitive_name(name: str) -> bool:
+    normalized = normalize_name(name)
+    spaced = normalized.replace('_', ' ')
+    return bool(SECRET_WORD_RE.search(normalized) or SECRET_WORD_RE.search(spaced) or SECRET_PHRASE_RE.search(spaced))
+
+def literal_string(node):
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+def looks_like_secret_literal(value: str) -> bool:
+    compact = value.strip()
+    lowered = compact.lower()
+    if len(compact) < 8:
+        return False
+    if lowered in PLACEHOLDERS:
+        return False
+    if 'example.' in lowered or lowered.startswith(('example_', 'sample_', 'dummy_')):
+        return False
+    if not re.search(r'[A-Za-z0-9]', compact):
+        return False
+    return True
+
+def call_name(node):
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = call_name(node.value)
+        return f'{parent}.{node.attr}' if parent else node.attr
+    return ''
+
+def subscript_key_name(node):
+    target = node.slice if isinstance(node, ast.Subscript) else None
+    if isinstance(target, ast.Constant) and isinstance(target.value, str):
+        return target.value
+    if isinstance(target, ast.Index) and isinstance(target.value, ast.Constant) and isinstance(target.value.value, str):
+        return target.value.value
+    return ''
+
+def target_names(node):
+    if isinstance(node, ast.Name):
+        return [node.id]
+    if isinstance(node, ast.Attribute):
+        return [node.attr]
+    if isinstance(node, ast.Subscript):
+        key = subscript_key_name(node)
+        return [key] if key else []
+    if isinstance(node, (ast.Tuple, ast.List)):
+        names = []
+        for elt in node.elts:
+            names.extend(target_names(elt))
+        return names
+    return []
+
+class HardcodedSecretAnalyzer(ast.NodeVisitor):
+    def __init__(self, path, lines):
+        self.path = path
+        self.lines = lines
+        self.os_aliases = {'os'}
+        self.environ_aliases = {'environ'}
+        self.getenv_aliases = set()
+        self.issues = []
+        self.issue_lines = set()
+
+    def remember_issue(self, node):
+        line_no = getattr(node, 'lineno', 0)
+        if line_no <= 0 or line_no in self.issue_lines or has_ignore(self.lines, line_no):
+            return
+        self.issue_lines.add(line_no)
+        self.issues.append((relpath(self.path), line_no, source_line(self.lines, line_no)))
+
+    def visit_Import(self, node):
+        for alias in node.names:
+            if alias.name == 'os':
+                self.os_aliases.add(alias.asname or alias.name)
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node):
+        if node.module == 'os':
+            for alias in node.names:
+                local = alias.asname or alias.name
+                if alias.name == 'environ':
+                    self.environ_aliases.add(local)
+                elif alias.name == 'getenv':
+                    self.getenv_aliases.add(local)
+        self.generic_visit(node)
+
+    def env_fallback(self, node):
+        if not isinstance(node, ast.Call):
+            return False
+        name = call_name(node.func)
+        is_getenv = name in self.getenv_aliases or any(name == f'{alias}.getenv' for alias in self.os_aliases)
+        is_environ_get = any(name == f'{alias}.get' for alias in self.environ_aliases)
+        is_os_environ_get = any(name == f'{alias}.environ.get' for alias in self.os_aliases)
+        if not (is_getenv or is_environ_get or is_os_environ_get):
+            return False
+        if not node.args:
+            return False
+        env_name = literal_string(node.args[0]) or ''
+        default_node = node.args[1] if len(node.args) > 1 else None
+        for keyword in node.keywords:
+            if keyword.arg == 'default':
+                default_node = keyword.value
+        default = literal_string(default_node) if default_node is not None else None
+        return bool(is_sensitive_name(env_name) and default is not None and looks_like_secret_literal(default))
+
+    def value_is_hardcoded_secret(self, node):
+        literal = literal_string(node)
+        if literal is not None:
+            return looks_like_secret_literal(literal)
+        return self.env_fallback(node)
+
+    def visit_Assign(self, node):
+        sensitive_target = any(is_sensitive_name(name) for target in node.targets for name in target_names(target))
+        if sensitive_target and self.value_is_hardcoded_secret(node.value):
+            self.remember_issue(node)
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node):
+        sensitive_target = any(is_sensitive_name(name) for name in target_names(node.target))
+        if sensitive_target and node.value is not None and self.value_is_hardcoded_secret(node.value):
+            self.remember_issue(node)
+        self.generic_visit(node)
+
+    def visit_Dict(self, node):
+        for key, value in zip(node.keys, node.values):
+            key_name = literal_string(key) if key is not None else None
+            if key_name and is_sensitive_name(key_name) and self.value_is_hardcoded_secret(value):
+                self.remember_issue(value)
+        self.generic_visit(node)
+
+    def visit_Call(self, node):
+        if self.env_fallback(node):
+            self.remember_issue(node)
+        for keyword in node.keywords:
+            if keyword.arg and is_sensitive_name(keyword.arg) and self.value_is_hardcoded_secret(keyword.value):
+                self.remember_issue(keyword.value)
+        if isinstance(node.func, ast.Attribute) and node.func.attr == 'setdefault' and len(node.args) >= 2:
+            key_name = literal_string(node.args[0]) or ''
+            if is_sensitive_name(key_name) and self.value_is_hardcoded_secret(node.args[1]):
+                self.remember_issue(node)
+        self.generic_visit(node)
+
+def analyze(path, issues):
+    try:
+        text = path.read_text(encoding='utf-8', errors='ignore')
+        tree = ast.parse(text, filename=str(path))
+    except Exception:
+        return
+    lines = text.splitlines()
+    analyzer = HardcodedSecretAnalyzer(path, lines)
+    analyzer.visit(tree)
+    issues.extend(analyzer.issues)
+
+issues = []
+for file_path in iter_files(ROOT):
+    analyze(file_path, issues)
+
+print(f'__COUNT__\t{len(issues)}')
+for file_name, line_no, code in issues[:25]:
+    print(f'__SAMPLE__\t{file_name}\t{line_no}\t{code}')
+PY
+)
+  hardcoded_secret_count=0
+  hardcoded_secret_samples=""
+  while IFS=$'\t' read -r tag a b c; do
+    case "$tag" in
+      __COUNT__) hardcoded_secret_count=$((a + 0));;
+      __SAMPLE__) hardcoded_secret_samples+="${a}"$'\t'"${b}"$'\t'"${c}"$'\n';;
+    esac
+  done <<<"$hardcoded_secret_report"
+  if [ "$hardcoded_secret_count" -gt 0 ]; then
+    print_finding "critical" "$hardcoded_secret_count" "Potential hardcoded secrets" "Use secret manager or required env vars; do not keep literal fallbacks for secret env vars"
+    sample_limit=3
+    while IFS=$'\t' read -r sample_path sample_line sample_text; do
+      [ -z "$sample_path" ] && continue
+      print_code_sample "$sample_path" "$sample_line" "$sample_text"
+      sample_limit=$((sample_limit - 1))
+      [ "$sample_limit" -le 0 ] && break
+    done <<<"$hardcoded_secret_samples"
+  fi
 fi
 
 print_subheader "tempfile.mktemp (insecure)"
