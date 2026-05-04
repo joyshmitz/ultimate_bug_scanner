@@ -5184,12 +5184,233 @@ PY
   )
 }
 
+run_cors_credentials_checks() {
+  print_subheader "CORS credential policy"
+  if ! command -v python3 >/dev/null 2>&1; then
+    print_finding "info" 0 "python3 not available" "Install python3 to enable credentialed CORS checks"
+    return
+  fi
+  local printed=0
+  while IFS=$'\t' read -r tag a b c; do
+    case "$tag" in
+      __COUNT__)
+        if [[ "$a" -gt 0 ]]; then
+          print_finding "critical" "$a" "Credentialed wildcard/reflected CORS" "Use an explicit trusted origin allowlist and emit Vary: Origin when Access-Control-Allow-Credentials is true"
+        else
+          print_finding "good" "No unsafe CORS credential policy detected"
+        fi
+        ;;
+      __SAMPLE__)
+        if [[ "$printed" -lt "$DETAIL_LIMIT" && "$printed" -lt "$MAX_DETAILED" ]]; then
+          print_code_sample "$a" "$b" "$c"
+          printed=$((printed + 1))
+        fi
+        ;;
+    esac
+  done < <(python3 - "$PROJECT_DIR" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(sys.argv[1]).resolve()
+BASE_DIR = ROOT if ROOT.is_dir() else ROOT.parent
+SKIP_DIRS = {'.git', 'vendor', 'node_modules', '.cache', 'bin', 'build', 'dist'}
+
+ORIGIN_WILDCARD_RE = re.compile(
+    r'\bAccess-Control-Allow-Origin\b["`]\s*,\s*["`]\*["`]'
+    r'|\b(?:AllowedOrigins|AllowOrigins)\s*:\s*\[\]string\s*\{[^}]*["`]\*["`]'
+    r'|\b(?:handlers\.)?AllowedOrigins\s*\(\s*\[\]string\s*\{[^}]*["`]\*["`]',
+    re.IGNORECASE,
+)
+ORIGIN_REFLECTION_RE = re.compile(
+    r'\bAccess-Control-Allow-Origin\b["`]\s*,\s*(?:'
+    r'(?:r|req|request)\.Header\.Get\s*\(\s*["`]Origin["`]\s*\)|'
+    r'(?:c|ctx|context)\.(?:GetHeader|Request\(\)\.Header\.Get)\s*\(\s*["`]Origin["`]\s*\))'
+    r'|\bAllowOriginFunc\s*:\s*func\s*\([^)]*\)\s*bool\s*\{[^}]*return\s+true\b',
+    re.IGNORECASE,
+)
+ORIGIN_SOURCE_RE = re.compile(
+    r'\b(?:r|req|request)\.Header\.Get\s*\(\s*["`]Origin["`]\s*\)'
+    r'|\b(?:c|ctx|context)\.(?:GetHeader|Request\(\)\.Header\.Get)\s*\(\s*["`]Origin["`]\s*\)',
+    re.IGNORECASE,
+)
+CREDENTIALS_TRUE_RE = re.compile(
+    r'\bAccess-Control-Allow-Credentials\b["`]\s*,\s*(?:true|["`]true["`])'
+    r'|\bAllowCredentials\s*:\s*true\b'
+    r'|\b(?:handlers\.)?AllowCredentials\s*\(',
+    re.IGNORECASE,
+)
+CANDIDATE_RE = re.compile(
+    r'Access-Control-Allow-(?:Origin|Credentials)|AllowedOrigins|AllowOrigins|AllowOriginFunc|AllowCredentials|AllowedOrigins\s*\(',
+    re.IGNORECASE,
+)
+ASSIGN_RE = re.compile(r'^\s*(?:var\s+)?(?P<lhs>[A-Za-z_][A-Za-z0-9_,\s]*)\s*(?::=|=)\s*(?P<rhs>.+)$')
+IDENT_RE = re.compile(r'\b[A-Za-z_][A-Za-z0-9_]*\b')
+
+def should_skip(path: Path) -> bool:
+    return any(part in SKIP_DIRS for part in path.parts)
+
+def iter_files(root: Path):
+    if root.is_file():
+        if root.suffix.lower() == '.go':
+            yield root
+        return
+    for path in root.rglob('*.go'):
+        if path.is_file() and not should_skip(path):
+            yield path
+
+def strip_line_comments(line: str) -> str:
+    out = []
+    quote = ''
+    escape = False
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if quote:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == '\\':
+                escape = True
+            elif ch == quote:
+                quote = ''
+            i += 1
+            continue
+        if ch in ('"', "'", '`'):
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == '/' and i + 1 < len(line) and line[i + 1] == '/':
+            break
+        out.append(ch)
+        i += 1
+    return ''.join(out)
+
+def has_ignore(lines, line_no):
+    idx = line_no - 1
+    return (
+        0 <= idx < len(lines) and 'ubs:ignore' in lines[idx]
+    ) or (
+        0 <= idx - 1 < len(lines) and 'ubs:ignore' in lines[idx - 1]
+    )
+
+def relpath(path: Path) -> str:
+    try:
+        return str(path.relative_to(BASE_DIR))
+    except ValueError:
+        return str(path)
+
+def source_line(lines, line_no):
+    idx = line_no - 1
+    if 0 <= idx < len(lines):
+        return lines[idx].strip().replace('\t', ' ')
+    return ''
+
+def logical_statement(lines, line_no):
+    idx = line_no - 1
+    statement = strip_line_comments(lines[idx])
+    balance = statement.count('(') + statement.count('{') - statement.count(')') - statement.count('}')
+    lookahead = idx + 1
+    while balance > 0 and lookahead < len(lines) and lookahead < idx + 16:
+        next_line = strip_line_comments(lines[lookahead])
+        statement += ' ' + next_line.strip()
+        balance += next_line.count('(') + next_line.count('{') - next_line.count(')') - next_line.count('}')
+        lookahead += 1
+    return statement
+
+def context_around(lines, line_no, before=8, after=18):
+    idx = line_no - 1
+    start = idx
+    while start > 0 and idx - start < before:
+        if not strip_line_comments(lines[start - 1]).strip():
+            break
+        start -= 1
+    end = idx
+    while end + 1 < len(lines) and end - idx < after:
+        if not strip_line_comments(lines[end + 1]).strip():
+            break
+        end += 1
+    parts = []
+    for current in range(start, end + 1):
+        stripped = strip_line_comments(lines[current]).strip()
+        if stripped:
+            parts.append(stripped)
+    return ' '.join(parts)
+
+def lhs_names(lhs):
+    names = []
+    for part in lhs.split(','):
+        name = part.strip()
+        if name and name != '_' and IDENT_RE.fullmatch(name):
+            names.append(name)
+    return names
+
+def context_origin_ref_vars(context):
+    refs = set()
+    for assign in re.finditer(r'(?:^|[;{}])\s*(?:var\s+)?(?P<lhs>[A-Za-z_][A-Za-z0-9_,\s]*)\s*(?::=|=)\s*(?P<rhs>[^;{}]+)', context):
+        if not assign or not ORIGIN_SOURCE_RE.search(assign.group('rhs')):
+            continue
+        for name in lhs_names(assign.group('lhs')):
+            refs.add(name)
+    return refs
+
+def has_reflected_origin(context, refs):
+    if ORIGIN_REFLECTION_RE.search(context):
+        return True
+    for name in refs:
+        if re.search(rf'\bAccess-Control-Allow-Origin\b["`]\s*,\s*{re.escape(name)}\b', context, re.IGNORECASE):
+            return True
+    return False
+
+def analyze(path, issues):
+    try:
+        text = path.read_text(encoding='utf-8', errors='ignore')
+    except OSError:
+        return
+    if not CANDIDATE_RE.search(text):
+        return
+    lines = text.splitlines()
+    seen = set()
+    last_issue = -100
+    for idx, raw in enumerate(lines, start=1):
+        if has_ignore(lines, idx):
+            continue
+        stripped = strip_line_comments(raw).strip()
+        if not stripped or not CANDIDATE_RE.search(stripped):
+            continue
+        context = context_around(lines, idx)
+        refs = context_origin_ref_vars(context)
+        if not CREDENTIALS_TRUE_RE.search(context):
+            continue
+        if not (ORIGIN_WILDCARD_RE.search(context) or has_reflected_origin(context, refs)):
+            continue
+        if idx - last_issue <= 3:
+            continue
+        key = (relpath(path), idx)
+        if key in seen:
+            continue
+        seen.add(key)
+        last_issue = idx
+        issues.append((relpath(path), idx, source_line(lines, idx)))
+
+issues = []
+for file_path in iter_files(ROOT):
+    analyze(file_path, issues)
+
+print(f"__COUNT__\t{len(issues)}")
+for file_name, line_no, code in issues[:25]:
+    print(f"__SAMPLE__\t{file_name}\t{line_no}\t{code}")
+PY
+  )
+}
+
 # ═══════════════════════════════════════════════════════════════════════════
 # CATEGORY 9: CRYPTOGRAPHY & SECURITY
 # ═══════════════════════════════════════════════════════════════════════════
 if should_skip 9; then
 print_header "9. CRYPTOGRAPHY & SECURITY"
-print_category "Detects: weak hashes, security-sensitive non-crypto randomness, InsecureSkipVerify, shell exec, dynamic SQL strings, request path traversal, response header injection, open redirects, outbound URL SSRF, unsafe archive extraction" \
+print_category "Detects: weak hashes, security-sensitive non-crypto randomness, InsecureSkipVerify, credentialed CORS, shell exec, dynamic SQL strings, request path traversal, response header injection, open redirects, outbound URL SSRF, unsafe archive extraction" \
   "Security footguns are easy to miss and costly to fix"
 
 print_subheader "Weak hashes (md5/sha1) and RC4"
@@ -5198,6 +5419,7 @@ if [ "$count" -gt 0 ]; then print_finding "warning" "$count" "Weak crypto primit
 
 run_security_randomness_checks
 run_hardcoded_secret_checks
+run_cors_credentials_checks
 
 print_subheader "TLS InsecureSkipVerify=true"
 count=$([[ "$HAS_AST_GREP" -eq 1 && -f "$AST_JSON" ]] && ast_count "go.tls-insecure-skip" || echo 0)

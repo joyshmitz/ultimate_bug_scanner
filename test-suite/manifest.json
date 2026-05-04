@@ -4720,6 +4720,65 @@
       }
     },
     {
+      "id": "golang-cors-credentials-buggy",
+      "description": "Go HTTP handlers and CORS configs should not combine credentials with wildcard or reflected origins.",
+      "path": "test-suite/golang/security/cors_credentials_buggy.go",
+      "language": "golang",
+      "tags": [
+        "golang",
+        "security",
+        "cors",
+        "buggy"
+      ],
+      "args": [
+        "--only=golang",
+        "--fail-on-warning",
+        "--skip=1,2,3,4,5,6,7,8,10,11,12,13,14,15,16,17,18,19,20,21,22"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "critical": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "Credentialed wildcard/reflected CORS"
+        ]
+      }
+    },
+    {
+      "id": "golang-cors-credentials-clean",
+      "description": "Go CORS allow-list origins with credentials and public wildcard CORS without credentials should stay clean.",
+      "path": "test-suite/golang/security/cors_credentials_clean.go",
+      "language": "golang",
+      "tags": [
+        "golang",
+        "security",
+        "cors",
+        "clean"
+      ],
+      "args": [
+        "--only=golang",
+        "--fail-on-warning",
+        "--skip=1,2,3,4,5,6,7,8,10,11,12,13,14,15,16,17,18,19,20,21,22"
+      ],
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "critical": {
+            "max": 0
+          },
+          "warning": {
+            "max": 0
+          }
+        },
+        "forbid_substrings": [
+          "Credentialed wildcard/reflected CORS"
+        ]
+      }
+    },
+    {
       "id": "golang-header-injection-clean",
       "description": "Go response headers using CR/LF stripping, mime.FormatMediaType, or reject-on-newline guards should stay clean.",
       "path": "test-suite/golang/security/header_injection_clean.go",
