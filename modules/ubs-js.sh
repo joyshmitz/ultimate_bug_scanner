@@ -4504,6 +4504,210 @@ if [ "$count" -gt 0 ]; then
   show_detailed_finding "$proto_pattern" 3
 fi
 
+print_subheader "Request-derived object merge prototype pollution"
+prototype_merge_report=$(python3 - "$PROJECT_DIR" <<'PY' 2>/dev/null
+import os
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+exts = {'.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'}
+skip_dirs = {'.git', 'node_modules', 'dist', 'build', 'coverage', '.next', '.cache', '.turbo'}
+
+source_re = re.compile(
+    r'\b(?:req|request|ctx|context|event)\.(?:body|query|params|headers|cookies)\b'
+    r'|\b(?:req|request)\.json\s*\('
+    r'|\b(?:req|request|ctx|context)\.(?:get|header|param|query)\s*\('
+    r'|\bsearchParams\.(?:get|getAll|entries)\s*\('
+    r'|\bJSON\.parse\s*\(\s*(?:req|request|event)\.body\b',
+    re.IGNORECASE,
+)
+merge_sink_re = re.compile(
+    r'\b(?:Object\.assign|(?:_|lodash)\.(?:merge|mergeWith|defaultsDeep|extend)|'
+    r'deepmerge|merge|mergeWith|defaultsDeep|extend)\s*\('
+)
+dynamic_write_re = re.compile(r'\[[^\]]+\]\s*=')
+assign_re = re.compile(
+    r'^\s*(?:const|let|var)?\s*([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=\s*(.+)'
+)
+safe_re = re.compile(
+    r'\b(?:sanitizePrototypeKeys|stripPrototypeKeys|rejectPrototypeKeys|'
+    r'validatePrototypeKeys|assertNoPrototypeKeys|safeMerge|secureMerge|'
+    r'mergeWithoutPrototype|schema\.parse|z\.object|Object\.create\s*\(\s*null\s*\))\b'
+)
+
+
+def strip_line_comments(line: str) -> str:
+    quote = ''
+    escaped = False
+    for idx, ch in enumerate(line):
+        if quote:
+            if escaped:
+                escaped = False
+            elif ch == '\\':
+                escaped = True
+            elif ch == quote:
+                quote = ''
+            continue
+        if ch in ('"', "'", '`'):
+            quote = ch
+            continue
+        if ch == '/' and idx + 1 < len(line) and line[idx + 1] == '/':
+            return line[:idx]
+    return line
+
+
+def mask_strings(text: str) -> str:
+    chars = list(text)
+    quote = ''
+    escaped = False
+    for idx, ch in enumerate(chars):
+        if quote:
+            if escaped:
+                escaped = False
+                chars[idx] = ' '
+            elif ch == '\\':
+                escaped = True
+                chars[idx] = ' '
+            elif ch == quote:
+                quote = ''
+                chars[idx] = ' '
+            else:
+                chars[idx] = ' '
+            continue
+        if ch in ('"', "'", '`'):
+            quote = ch
+            chars[idx] = ' '
+    return ''.join(chars)
+
+
+def logical_statement(lines, index, max_lines=8):
+    parts = []
+    balance = 0
+    for offset in range(index, min(len(lines), index + max_lines)):
+        current = strip_line_comments(lines[offset]).strip()
+        if not current:
+            continue
+        parts.append(current)
+        balance += current.count('(') - current.count(')')
+        balance += current.count('{') - current.count('}')
+        balance += current.count('[') - current.count(']')
+        if offset > index and balance <= 0:
+            break
+        if ';' in current and balance <= 0:
+            break
+    return ' '.join(parts)
+
+
+def context_window(lines, index):
+    start = max(0, index - 8)
+    end = min(len(lines), index + 4)
+    return '\n'.join(strip_line_comments(line) for line in lines[start:end])
+
+
+def iter_files(path: Path):
+    if path.is_file():
+        if path.suffix.lower() in exts:
+            yield path
+        return
+    for dirpath, dirnames, filenames in os.walk(path):
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+        for fname in filenames:
+            candidate = Path(dirpath) / fname
+            if candidate.suffix.lower() in exts:
+                yield candidate
+
+
+def has_untrusted(expr: str, tainted_vars: set[str]) -> bool:
+    visible = mask_strings(expr)
+    if source_re.search(visible):
+        return True
+    return any(re.search(rf'\b{re.escape(name)}\b', visible) for name in tainted_vars)
+
+
+def update_taint(statement: str, tainted_vars: set[str]) -> None:
+    match = assign_re.match(statement)
+    if not match:
+        return
+    target, rhs = match.groups()
+    if safe_re.search(rhs):
+        tainted_vars.discard(target)
+    elif has_untrusted(rhs, tainted_vars):
+        tainted_vars.add(target)
+
+
+def dynamic_write_has_safe_context(context: str) -> bool:
+    return bool(
+        re.search(r'\b(?:validatePrototypeKeys|assertNoPrototypeKeys|rejectPrototypeKeys)\b', context)
+        and re.search(r'\bObject\.create\s*\(\s*null\s*\)', context)
+    )
+
+
+issues = []
+seen = set()
+sample_root = root.parent if root.is_file() else root
+for path in iter_files(root):
+    try:
+        lines = path.read_text(encoding='utf-8', errors='ignore').splitlines()
+    except OSError:
+        continue
+    if not any(token in '\n'.join(lines) for token in (
+        'Object.assign', 'merge', 'defaultsDeep', 'extend', 'req.', 'request.', 'searchParams',
+    )):
+        continue
+    tainted_vars = set()
+    for idx, raw in enumerate(lines):
+        stripped = strip_line_comments(raw).strip()
+        if not stripped or stripped.startswith(('*', 'import ', 'export type ', 'type ', 'interface ')):
+            continue
+        statement = logical_statement(lines, idx)
+        if 'ubs:ignore' in statement:
+            continue
+        update_taint(statement, tainted_vars)
+        visible_statement = mask_strings(statement)
+        context = context_window(lines, idx)
+        if safe_re.search(statement):
+            continue
+        risky = False
+        if merge_sink_re.search(visible_statement) and has_untrusted(visible_statement, tainted_vars):
+            risky = True
+        elif (
+            dynamic_write_re.search(visible_statement)
+            and has_untrusted(visible_statement, tainted_vars)
+            and not dynamic_write_has_safe_context(context)
+        ):
+            risky = True
+        if not risky:
+            continue
+        key = (str(path), idx + 1)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            rel = path.relative_to(sample_root)
+        except ValueError:
+            rel = path
+        issues.append((str(rel), idx + 1, stripped.replace('\t', ' ')))
+
+print(len(issues))
+for entry in issues[:25]:
+    print('\t'.join(str(part) for part in entry))
+PY
+)
+prototype_merge_count=$(printf '%s\n' "$prototype_merge_report" | head -n1 | awk 'END{print $0+0}')
+prototype_merge_samples=$(printf '%s\n' "$prototype_merge_report" | tail -n +2)
+if [ "$prototype_merge_count" -gt 0 ]; then
+  print_finding "critical" "$prototype_merge_count" "Request-derived object merge may allow prototype pollution" "Reject __proto__/constructor/prototype keys or use a schema/safe merge helper before merging request-controlled objects"
+  sample_limit=3
+  while IFS=$'\t' read -r sample_path sample_line sample_text; do
+    [ -z "$sample_path" ] && continue
+    print_code_sample "$sample_path" "$sample_line" "$sample_text"
+    sample_limit=$((sample_limit - 1))
+    [ "$sample_limit" -le 0 ] && break
+  done <<<"$prototype_merge_samples"
+fi
+
 print_subheader "window.open(_blank) without noopener"
 count=$("${GREP_RN[@]}" -e "window\.open[[:space:]]*\([^,]+,[[:space:]]*['\"]_blank['\"]" "$PROJECT_DIR" 2>/dev/null | \
   (grep -Ev "noopener|noreferrer|ubs:ignore" || true) | count_lines)
