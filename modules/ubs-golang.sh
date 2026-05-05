@@ -5240,6 +5240,10 @@ SENSITIVE_RE = re.compile(
 NULLISH_RE = re.compile(r'^(?:nil|true|false|0|1|""|``)$')
 SHAPE_RE = re.compile(r'\b(?:len|cap)\s*\(|\.(?:Len|Size)\s*\(')
 PURE_STRING_LITERAL_RE = re.compile(r'^\s*(?:"(?:\\.|[^"\\])*"|`[^`]*`)\s*$')
+JWT_METHOD_COMPARE_RE = re.compile(
+    r'\bSigningMethod[A-Za-z0-9_]*\b.*?(?:\b[A-Za-z_][A-Za-z0-9_]*\.Method\b|\.Alg\s*\()|'
+    r'(?:\b[A-Za-z_][A-Za-z0-9_]*\.Method\b|\.Alg\s*\().*?\bSigningMethod[A-Za-z0-9_]*\b'
+)
 KEYWORDS = {
     'if', 'for', 'switch', 'case', 'return', 'var', 'const', 'func',
     'true', 'false', 'nil', 'range', 'go', 'defer',
@@ -5382,6 +5386,9 @@ def operand_is_nullish_or_shape_check(operand: str) -> bool:
         return True
     return False
 
+def is_jwt_signing_method_check(left: str, right: str) -> bool:
+    return bool(JWT_METHOD_COMPARE_RE.search(f'{left} {right}'))
+
 def collect_sensitive_vars(lines):
     sensitive = set()
     for idx, raw in enumerate(lines, start=1):
@@ -5417,6 +5424,8 @@ def unsafe_secret_compare(statement: str, sensitive_vars) -> bool:
             continue
         left = clean_operand_text(match.group('left'))
         right = clean_operand_text(match.group('right'))
+        if is_jwt_signing_method_check(left, right):
+            continue
         if operand_is_nullish_or_shape_check(left) or operand_is_nullish_or_shape_check(right):
             continue
         if operand_is_sensitive(left, sensitive_vars) or operand_is_sensitive(right, sensitive_vars):
@@ -5448,6 +5457,249 @@ for path in iter_files(ROOT):
             continue
         seen.add(key)
         issues.append((relpath(path), idx, source_line(lines, idx)))
+
+print(f"__COUNT__\t{len(issues)}")
+for file_name, line_no, code in issues[:25]:
+    print(f"__SAMPLE__\t{file_name}\t{line_no}\t{code}")
+PY
+  )
+}
+
+run_jwt_verification_checks() {
+  print_subheader "JWT verification and signing-method validation"
+  if ! command -v python3 >/dev/null 2>&1; then
+    print_finding "info" 0 "python3 not available" "Install python3 to enable JWT verification checks"
+    return
+  fi
+  local printed=0
+  while IFS=$'\t' read -r tag a b c; do
+    case "$tag" in
+      __COUNT__)
+        if [[ "$a" -gt 0 ]]; then
+          print_finding "critical" "$a" "JWT parse/decode verification bypass risk" "Avoid ParseUnverified, SigningMethodNone, and WithoutClaimsValidation; validate token.Method or use jwt.WithValidMethods before trusting claims"
+        else
+          print_finding "good" "No JWT parse/decode verification bypass patterns detected"
+        fi
+        ;;
+      __SAMPLE__)
+        if [[ "$printed" -lt "$DETAIL_LIMIT" && "$printed" -lt "$MAX_DETAILED" ]]; then
+          print_code_sample "$a" "$b" "$c"
+          printed=$((printed + 1))
+        fi
+        ;;
+    esac
+  done < <(python3 - "$PROJECT_DIR" <<'PY'
+import os
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(sys.argv[1]).resolve()
+BASE_DIR = ROOT if ROOT.is_dir() else ROOT.parent
+SKIP_DIRS = {'.git', 'vendor', 'node_modules', '.cache', 'bin', 'build', 'dist'}
+JWT_IMPORT_RE = re.compile(
+    r'^\s*(?:(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\s+|[._]\s+)?'
+    r'"github\.com/(?:golang-jwt/jwt(?:/v\d+)?|dgrijalva/jwt-go)"'
+)
+PARSER_ASSIGN_TEMPLATE = r'\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?::=|=)\s*(?:{prefix})\.NewParser\s*\('
+SAFE_METHOD_RE = re.compile(
+    r'\bWithValidMethods\s*\(|\bValidMethods\b|'
+    r'(?:\b[A-Za-z_][A-Za-z0-9_]*\.Method\b|\.Method\b).*?'
+    r'(?:\bSigningMethod[A-Za-z0-9_]*\b|\bAlg\s*\()|'
+    r'(?:\bSigningMethod[A-Za-z0-9_]*\b|\bAlg\s*\().*?'
+    r'(?:\b[A-Za-z_][A-Za-z0-9_]*\.Method\b|\.Method\b)',
+    re.DOTALL,
+)
+
+def should_skip(path: Path) -> bool:
+    return any(part in SKIP_DIRS for part in path.parts)
+
+def iter_files(root: Path):
+    if root.is_file():
+        if root.suffix.lower() == '.go':
+            yield root
+        return
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        for name in filenames:
+            path = Path(dirpath) / name
+            if path.suffix.lower() == '.go' and not should_skip(path):
+                yield path
+
+def relpath(path: Path) -> str:
+    try:
+        return str(path.relative_to(BASE_DIR))
+    except ValueError:
+        return str(path)
+
+def strip_line_comments(line: str) -> str:
+    out = []
+    quote = ''
+    escape = False
+    idx = 0
+    while idx < len(line):
+        ch = line[idx]
+        if quote:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == '\\':
+                escape = True
+            elif ch == quote:
+                quote = ''
+            idx += 1
+            continue
+        if ch in ('"', "'", '`'):
+            quote = ch
+            out.append(ch)
+            idx += 1
+            continue
+        if ch == '/' and idx + 1 < len(line):
+            nxt = line[idx + 1]
+            if nxt == '/':
+                break
+            if nxt == '*':
+                end = line.find('*/', idx + 2)
+                if end == -1:
+                    break
+                idx = end + 2
+                continue
+        out.append(ch)
+        idx += 1
+    return ''.join(out)
+
+def source_line(lines, line_no):
+    idx = line_no - 1
+    if 0 <= idx < len(lines):
+        return lines[idx].strip().replace('\t', ' ')
+    return ''
+
+def has_ignore(lines, line_no):
+    idx = line_no - 1
+    return (
+        0 <= idx < len(lines) and 'ubs:ignore' in lines[idx]
+    ) or (
+        0 <= idx - 1 < len(lines) and 'ubs:ignore' in lines[idx - 1]
+    )
+
+def statement_from(lines, line_no, max_lines=12):
+    idx = line_no - 1
+    parts = []
+    balance = 0
+    for current_idx in range(idx, min(len(lines), idx + max_lines)):
+        current = strip_line_comments(lines[current_idx]).strip()
+        if not current:
+            if parts:
+                break
+            continue
+        parts.append(current)
+        balance += current.count('(') + current.count('{') - current.count(')') - current.count('}')
+        if current_idx > idx and balance <= 0:
+            break
+        if current_idx == idx and balance <= 0 and not current.endswith(('{', '(', ',')):
+            break
+    return ' '.join(parts)
+
+def function_context(lines, line_no, max_lines=180):
+    start = line_no - 1
+    while start > 0 and not re.match(r'^\s*func\b', strip_line_comments(lines[start])):
+        start -= 1
+    if not re.match(r'^\s*func\b', strip_line_comments(lines[start])):
+        return statement_from(lines, line_no, max_lines=24)
+    parts = []
+    balance = 0
+    saw_open = False
+    for idx in range(start, min(len(lines), start + max_lines)):
+        current = strip_line_comments(lines[idx])
+        parts.append(current.strip())
+        balance += current.count('{') - current.count('}')
+        if '{' in current:
+            saw_open = True
+        if saw_open and idx > start and balance <= 0:
+            break
+    return ' '.join(part for part in parts if part)
+
+def collect_jwt_names(lines):
+    names = {'jwt'}
+    for raw in lines:
+        match = JWT_IMPORT_RE.match(strip_line_comments(raw).strip())
+        if not match:
+            continue
+        alias = match.group('alias')
+        if alias:
+            names.add(alias)
+        else:
+            names.add('jwt')
+    return names
+
+def collect_parser_names(lines, jwt_names):
+    names = set()
+    prefix = '|'.join(re.escape(name) for name in sorted(jwt_names))
+    if not prefix:
+        return names
+    parser_assign_re = re.compile(PARSER_ASSIGN_TEMPLATE.format(prefix=prefix))
+    for raw in lines:
+        match = parser_assign_re.search(strip_line_comments(raw))
+        if match:
+            names.add(match.group('name'))
+    return names
+
+def prefixed_call_re(names, methods):
+    prefix = '|'.join(re.escape(name) for name in sorted(names))
+    method = '|'.join(re.escape(name) for name in methods)
+    if not prefix:
+        return re.compile(r'$.')
+    return re.compile(rf'\b(?:{prefix})\.(?:{method})\s*\(')
+
+def analyze_file(path):
+    try:
+        text = path.read_text(encoding='utf-8', errors='ignore')
+    except OSError:
+        return []
+    if not re.search(r'jwt|ParseUnverified|SigningMethodNone|WithoutClaimsValidation', text):
+        return []
+    lines = text.splitlines()
+    jwt_names = collect_jwt_names(lines)
+    parser_names = collect_parser_names(lines, jwt_names)
+    all_receivers = jwt_names | parser_names
+    parse_re = prefixed_call_re(all_receivers, ('Parse', 'ParseWithClaims'))
+    unverified_re = prefixed_call_re(all_receivers, ('ParseUnverified',))
+    issues = []
+    seen = set()
+    for line_no, raw in enumerate(lines, start=1):
+        if has_ignore(lines, line_no):
+            continue
+        stripped = strip_line_comments(raw).strip()
+        if not stripped:
+            continue
+        if not re.search(r'Parse(?:WithClaims|Unverified)?\s*\(|SigningMethodNone\b|\bWithoutClaimsValidation\s*\(', stripped):
+            continue
+        statement = statement_from(lines, line_no)
+        if not statement or 'ubs:ignore' in statement:
+            continue
+        reason = ''
+        if unverified_re.search(statement) or re.search(r'\bParseUnverified\s*\(', statement):
+            reason = 'decode-only'
+        elif re.search(r'\bSigningMethodNone\b', statement):
+            reason = 'none-alg'
+        elif re.search(r'\bWithoutClaimsValidation\s*\(', statement):
+            reason = 'claims-disabled'
+        elif parse_re.search(statement):
+            context = function_context(lines, line_no)
+            if not SAFE_METHOD_RE.search(context):
+                reason = 'method-unvalidated'
+        if not reason:
+            continue
+        key = (relpath(path), line_no)
+        if key in seen:
+            continue
+        seen.add(key)
+        issues.append((relpath(path), line_no, source_line(lines, line_no)))
+    return issues
+
+issues = []
+for file_path in iter_files(ROOT):
+    issues.extend(analyze_file(file_path))
 
 print(f"__COUNT__\t{len(issues)}")
 for file_name, line_no, code in issues[:25]:
@@ -5945,7 +6197,7 @@ PY
 # ═══════════════════════════════════════════════════════════════════════════
 if should_skip 9; then
 print_header "9. CRYPTOGRAPHY & SECURITY"
-print_category "Detects: weak hashes, security-sensitive non-crypto randomness, timing-unsafe secret comparisons, InsecureSkipVerify, auth cookie flags, credentialed CORS, shell exec, dynamic SQL strings, request path traversal, response header injection, open redirects, outbound URL SSRF, unsafe archive extraction" \
+print_category "Detects: weak hashes, security-sensitive non-crypto randomness, timing-unsafe secret comparisons, JWT verification bypasses, InsecureSkipVerify, auth cookie flags, credentialed CORS, shell exec, dynamic SQL strings, request path traversal, response header injection, open redirects, outbound URL SSRF, unsafe archive extraction" \
   "Security footguns are easy to miss and costly to fix"
 
 print_subheader "Weak hashes (md5/sha1) and RC4"
@@ -5955,6 +6207,7 @@ if [ "$count" -gt 0 ]; then print_finding "warning" "$count" "Weak crypto primit
 run_security_randomness_checks
 run_hardcoded_secret_checks
 run_constant_time_compare_checks
+run_jwt_verification_checks
 run_cookie_security_checks
 run_cors_credentials_checks
 
