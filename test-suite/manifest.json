@@ -6825,6 +6825,67 @@
       }
     },
     {
+      "id": "rust-jwt-verification-buggy",
+      "description": "Rust JWT code should not decode claims without verification or disable signature, expiration, or audience validation.",
+      "path": "test-suite/rust/buggy/jwt_verification.rs",
+      "language": "rust",
+      "tags": [
+        "rust",
+        "security",
+        "jwt",
+        "buggy"
+      ],
+      "ubs_bin": "../modules/ubs-rust.sh",
+      "args": [
+        "--no-cargo",
+        "--only=8",
+        "--fail-on-warning"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "critical": {
+            "min": 5
+          }
+        },
+        "require_substrings": [
+          "JWT decode/validation bypass risk"
+        ]
+      }
+    },
+    {
+      "id": "rust-jwt-verification-clean",
+      "description": "Rust JWT code that uses jsonwebtoken::decode with real keys and enabled claim validation should stay clean.",
+      "path": "test-suite/rust/clean/jwt_verification.rs",
+      "language": "rust",
+      "tags": [
+        "rust",
+        "security",
+        "jwt",
+        "clean"
+      ],
+      "ubs_bin": "../modules/ubs-rust.sh",
+      "args": [
+        "--no-cargo",
+        "--only=8",
+        "--fail-on-warning"
+      ],
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "critical": {
+            "max": 0
+          },
+          "warning": {
+            "max": 0
+          }
+        },
+        "forbid_substrings": [
+          "JWT decode/validation bypass risk"
+        ]
+      }
+    },
+    {
       "id": "rust-hardcoded-secrets-buggy",
       "description": "Rust apps should not hardcode secret const/static/let values, config-map secret values, struct secret fields, or env fallbacks.",
       "path": "test-suite/rust/buggy/hardcoded_secrets.rs",

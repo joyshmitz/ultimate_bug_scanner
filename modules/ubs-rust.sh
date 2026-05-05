@@ -4003,6 +4003,272 @@ collect_samples_constant_time_compare() {
   printf ']'
 }
 
+rust_jwt_verification_matches() {
+  [[ "$have_python3" -eq 1 ]] || return 1
+  python3 - "$PROJECT_DIR" <<'PY'
+import os
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+skip_dirs = {".git", "target", ".cargo", "node_modules"}
+call_suffix = r"(?:\s*::\s*<[^>\n]+>)?\s*\("
+
+decode_only_re = re.compile(
+    r"\b(?:jsonwebtoken::)?dangerous::insecure_decode\s*"
+    + call_suffix
+    + r"|(?:^|[^\w:])insecure_decode\s*"
+    + call_suffix
+    + r"|\bdangerous_unsafe_decode\s*"
+    + call_suffix
+)
+signature_disabled_re = re.compile(r"\.insecure_disable_signature_validation\s*\(")
+claim_validation_disabled_re = re.compile(
+    r"\bvalidate_(?:exp|aud)\s*(?::|=)\s*false\b"
+)
+
+
+def rust_files(path: Path):
+    if path.is_file():
+        if path.suffix == ".rs":
+            yield path
+        return
+    for dirpath, dirnames, filenames in os.walk(path):
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+        for name in filenames:
+            candidate = Path(dirpath) / name
+            if candidate.suffix == ".rs":
+                yield candidate
+
+
+def strip_line_comments(line: str) -> str:
+    out = []
+    quote = ""
+    raw_hashes = None
+    escape = False
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        nxt = line[i + 1] if i + 1 < len(line) else ""
+        if raw_hashes is not None:
+            out.append(ch)
+            if ch == '"' and line.startswith("#" * raw_hashes, i + 1):
+                out.extend("#" * raw_hashes)
+                i += raw_hashes + 1
+                raw_hashes = None
+                continue
+            i += 1
+            continue
+        if quote:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == quote:
+                quote = ""
+            i += 1
+            continue
+        if ch == "r":
+            j = i + 1
+            while j < len(line) and line[j] == "#":
+                j += 1
+            if j < len(line) and line[j] == '"':
+                raw_hashes = j - i - 1
+                out.extend(line[i:j + 1])
+                i = j + 1
+                continue
+        if ch == '"':
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "/" and nxt == "/":
+            break
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def statement_from(lines, line_no, max_lines=10):
+    idx = line_no - 1
+    parts = []
+    balance = 0
+    for current_idx in range(idx, min(len(lines), idx + max_lines)):
+        current = strip_line_comments(lines[current_idx]).strip()
+        if not current:
+            if parts:
+                break
+            continue
+        parts.append(current)
+        balance += current.count("(") + current.count("{") - current.count(")") - current.count("}")
+        if current_idx > idx and balance <= 0:
+            break
+        if current_idx == idx and balance <= 0 and not current.endswith(("{", "(", ",")):
+            break
+    return " ".join(parts)
+
+
+def mask_string_literals(text: str) -> str:
+    chars = list(text)
+    quote = ""
+    raw_hashes = None
+    escape = False
+    i = 0
+    while i < len(chars):
+        ch = chars[i]
+        if raw_hashes is not None:
+            if ch == '"' and text.startswith("#" * raw_hashes, i + 1):
+                chars[i] = " "
+                for j in range(i + 1, i + 1 + raw_hashes):
+                    chars[j] = " "
+                i += raw_hashes + 1
+                raw_hashes = None
+                continue
+            if ch != "\n":
+                chars[i] = " "
+            i += 1
+            continue
+        if quote:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == quote:
+                quote = ""
+            if ch != "\n":
+                chars[i] = " "
+            i += 1
+            continue
+        if ch == "r":
+            j = i + 1
+            while j < len(chars) and chars[j] == "#":
+                j += 1
+            if j < len(chars) and chars[j] == '"':
+                raw_hashes = j - i - 1
+                for k in range(i, j + 1):
+                    chars[k] = " "
+                i = j + 1
+                continue
+        if ch == '"':
+            quote = ch
+            chars[i] = " "
+            i += 1
+            continue
+        i += 1
+    return "".join(chars)
+
+
+def has_ignore(lines, line_no):
+    idx = line_no - 1
+    return (
+        0 <= idx < len(lines) and "ubs:ignore" in lines[idx]
+    ) or (
+        0 <= idx - 1 < len(lines) and "ubs:ignore" in lines[idx - 1]
+    )
+
+
+def source_line(lines, line_no):
+    idx = line_no - 1
+    if 0 <= idx < len(lines):
+        return lines[idx].strip().replace("\t", " ")
+    return ""
+
+
+def risky_jwt_statement(statement: str) -> bool:
+    code = mask_string_literals(statement)
+    return bool(
+        decode_only_re.search(code)
+        or signature_disabled_re.search(code)
+        or claim_validation_disabled_re.search(code)
+    )
+
+
+issues = []
+for rust_file in rust_files(root):
+    try:
+        text = rust_file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        continue
+    if not any(token in text for token in (
+        "insecure_decode",
+        "dangerous_unsafe_decode",
+        "insecure_disable_signature_validation",
+        "validate_exp",
+        "validate_aud",
+    )):
+        continue
+    lines = text.splitlines()
+    seen = set()
+    for line_no, raw in enumerate(lines, start=1):
+        if has_ignore(lines, line_no):
+            continue
+        stripped = strip_line_comments(raw).strip()
+        if not stripped or not any(token in stripped for token in (
+            "insecure_decode",
+            "dangerous_unsafe_decode",
+            "insecure_disable_signature_validation",
+            "validate_exp",
+            "validate_aud",
+        )):
+            continue
+        statement = statement_from(lines, line_no)
+        if not statement or "ubs:ignore" in statement:
+            continue
+        if not risky_jwt_statement(statement):
+            continue
+        key = (str(rust_file), line_no)
+        if key in seen:
+            continue
+        seen.add(key)
+        issues.append((rust_file, line_no, source_line(lines, line_no)))
+
+for path, line_no, code in issues:
+    print(f"{path}:{line_no}:{code}")
+PY
+}
+
+count_jwt_verification_matches() {
+  if [[ "$have_python3" -eq 1 ]]; then
+    rust_jwt_verification_matches | count_lines || true
+  else
+    return 1
+  fi
+}
+
+show_jwt_verification_examples() {
+  local limit="${1:-$DETAIL_LIMIT}"
+  local printed=0
+  [[ "$have_python3" -eq 1 ]] || return 1
+  while IFS= read -r rawline; do
+    [[ -z "$rawline" ]] && continue
+    parse_grep_line "$rawline" || continue
+    print_code_sample "$PARSED_FILE" "$PARSED_LINE" "$PARSED_CODE"
+    printed=$((printed + 1))
+    [[ $printed -ge $limit || $printed -ge $MAX_DETAILED ]] && break
+  done < <(rust_jwt_verification_matches | head -n "$limit")
+  [[ "$printed" -gt 0 ]]
+}
+
+collect_samples_jwt_verification() {
+  local limit="${1:-$DETAIL_LIMIT}"
+  if [[ "$have_python3" -ne 1 ]]; then
+    printf '[]'
+    return
+  fi
+  mapfile -t lines < <(rust_jwt_verification_matches | head -n "$limit")
+  printf '['
+  local i=0
+  local line
+  for line in "${lines[@]}"; do
+    [[ $i -gt 0 ]] && printf ','
+    printf '"%s"' "$(printf '%s' "$line" | json_escape)"
+    i=$((i + 1))
+  done
+  printf ']'
+}
+
 rust_format_literal_matches() {
   [[ "$have_python3" -eq 1 ]] || return 1
   python3 - "$PROJECT_DIR" <<'PY'
@@ -5792,7 +6058,7 @@ fi
 # ═══════════════════════════════════════════════════════════════════════════
 if category_enabled 8; then
 print_header "8. SECURITY FINDINGS"
-print_category "Detects: TLS verification disabled, weak hash algos, security-sensitive non-crypto randomness, timing-unsafe secret comparisons, shell command injection, request-derived response headers/open redirects/outbound URLs, HTTP URLs, secrets" \
+print_category "Detects: TLS verification disabled, weak hash algos, security-sensitive non-crypto randomness, timing-unsafe secret comparisons, JWT verification bypasses, shell command injection, request-derived response headers/open redirects/outbound URLs, HTTP URLs, secrets" \
   "Security misconfigurations can lead to credential leaks, command injection, and MITM attacks"
 
 print_subheader "Weak hash algorithms (MD5/SHA1)"
@@ -5826,6 +6092,17 @@ if [ "$constant_time_compare_hits" -gt 0 ]; then
   add_finding "critical" "$constant_time_compare_hits" "Secret, signature, or token compared with ==/!=" "Use subtle::ConstantTimeEq, ring::constant_time::verify_slices_are_equal, crypto_memcmp, or a reviewed constant-time helper for bearer tokens, HMACs, CSRF values, reset secrets, API keys, and signatures" "${CATEGORY_NAME[8]}" "$(collect_samples_constant_time_compare 3)"
 else
   print_finding "good" "No secret comparisons using ==/!= detected"
+fi
+
+print_subheader "JWT decode or validation bypass"
+jwt_verification_hits=$(count_jwt_verification_matches || echo 0)
+jwt_verification_hits=$(printf '%s\n' "${jwt_verification_hits:-0}" | awk 'END{print $0+0}')
+if [ "$jwt_verification_hits" -gt 0 ]; then
+  print_finding "critical" "$jwt_verification_hits" "JWT decode/validation bypass risk" "Use jsonwebtoken::decode with a real DecodingKey and Validation that keeps signature, expiration, and audience checks enabled; avoid dangerous::insecure_decode, dangerous_unsafe_decode, insecure_disable_signature_validation(), validate_exp=false, and validate_aud=false"
+  show_jwt_verification_examples 3 || true
+  add_finding "critical" "$jwt_verification_hits" "JWT decode/validation bypass risk" "Use jsonwebtoken::decode with a real DecodingKey and Validation that keeps signature, expiration, and audience checks enabled; avoid dangerous::insecure_decode, dangerous_unsafe_decode, insecure_disable_signature_validation(), validate_exp=false, and validate_aud=false" "${CATEGORY_NAME[8]}" "$(collect_samples_jwt_verification 3)"
+else
+  print_finding "good" "No JWT decode/validation bypass patterns detected"
 fi
 
 print_subheader "Shell command execution through -c/-lc"
