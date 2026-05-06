@@ -411,9 +411,35 @@ def run_real_case(
     return proc, summary_totals(summary)
 
 
-def run_ast_grep_rule_pack_check(timeout: int) -> None:
-    fixture = "test-suite/js/security/request-body-limit-buggy.ts"
-    cmd = [str(REPO_ROOT / "modules" / "ubs-js.sh"), "--format=sarif", fixture]
+AST_GREP_SARIF_CHECKS = (
+    {
+        "label": "js-rule-pack",
+        "module": "ubs-js.sh",
+        "args": ("--format=sarif",),
+        "fixture": "test-suite/js/security/request-body-limit-buggy.ts",
+    },
+    {
+        "label": "go-rule-pack",
+        "module": "ubs-golang.sh",
+        "args": ("--format=sarif",),
+        "fixture": "test-suite/golang/security/ssrf_buggy.go",
+    },
+    {
+        "label": "rust-rule-pack",
+        "module": "ubs-rust.sh",
+        "args": ("--no-cargo", "--format=sarif"),
+        "fixture": "test-suite/rust/buggy/sql_injection.rs",
+    },
+)
+
+
+def run_single_ast_grep_rule_pack_check(spec: dict[str, Any], timeout: int) -> None:
+    label = f"ast-grep-{spec['label']}-sarif"
+    cmd = [
+        str(REPO_ROOT / "modules" / spec["module"]),
+        *spec["args"],
+        spec["fixture"],
+    ]
     env = os.environ.copy()
     env.update({"NO_COLOR": "1", "UBS_ENABLE_AUTO_UPDATE": "0"})
     start = time.monotonic()
@@ -428,33 +454,38 @@ def run_ast_grep_rule_pack_check(timeout: int) -> None:
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
-        raise AssertionError(f"ast-grep rule-pack SARIF check timed out after {timeout}s") from exc
+        raise AssertionError(f"{label} timed out after {timeout}s") from exc
     proc.duration_seconds = round(time.monotonic() - start, 3)  # type: ignore[attr-defined]
 
     if proc.returncode not in (0, 1):
-        write_runtime_artifact("ast-grep-js-rule-pack-sarif", proc, None)
+        write_runtime_artifact(label, proc, None)
         raise AssertionError(
-            "JS ast-grep rule-pack SARIF check failed; stderr is captured under "
-            "test-suite/artifacts/rule_quality/ast-grep-js-rule-pack-sarif/"
+            f"{label} failed; stderr is captured under "
+            f"test-suite/artifacts/rule_quality/{label}/"
         )
     if "Environment error" in proc.stderr:
-        write_runtime_artifact("ast-grep-js-rule-pack-sarif", proc, None)
-        raise AssertionError("JS ast-grep rule-pack emitted an environment error")
+        write_runtime_artifact(label, proc, None)
+        raise AssertionError(f"{label} emitted an environment error")
 
     try:
         payload = JSON_DECODER.decode(proc.stdout)
     except json.JSONDecodeError as exc:
-        write_runtime_artifact("ast-grep-js-rule-pack-sarif", proc, None)
-        raise AssertionError(f"JS ast-grep rule-pack did not emit valid SARIF JSON: {exc}") from exc
+        write_runtime_artifact(label, proc, None)
+        raise AssertionError(f"{label} did not emit valid SARIF JSON: {exc}") from exc
     if not isinstance(payload, dict) or not isinstance(payload.get("runs"), list):
-        write_runtime_artifact("ast-grep-js-rule-pack-sarif", proc, payload if isinstance(payload, dict) else None)
-        raise AssertionError("JS ast-grep rule-pack SARIF output lacks runs[]")
+        write_runtime_artifact(label, proc, payload if isinstance(payload, dict) else None)
+        raise AssertionError(f"{label} SARIF output lacks runs[]")
     write_runtime_artifact(
-        "ast-grep-js-rule-pack-sarif",
+        label,
         proc,
         {"sarif_runs": len(payload["runs"])},
     )
-    print("[ast-grep-rule-pack] PASS")
+
+
+def run_ast_grep_rule_pack_check(timeout: int) -> None:
+    for spec in AST_GREP_SARIF_CHECKS:
+        run_single_ast_grep_rule_pack_check(spec, timeout)
+    print(f"[ast-grep-rule-pack] PASS ({len(AST_GREP_SARIF_CHECKS)} SARIF checks)")
 
 
 def run_runtime_pair_checks(

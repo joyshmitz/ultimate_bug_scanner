@@ -149,6 +149,7 @@ The script runs UBS twice against the Python buggy fixtures, verifies that the r
 
 - The tracked golden coverage matrix in `test-suite/goldens/rule_coverage.json` still matches the manifest's paired security fixtures.
 - Every paired security fixture has both a buggy and clean manifest case, and every manifest path exists.
+- Rust, TypeScript/JavaScript, and Go ast-grep rule packs all emit valid SARIF through the real module CLIs.
 - Curated request-body and route-param taint fixtures remain stable under benign comment/whitespace transforms.
 - Clean request-body, SQL, redirect, and SSRF fixtures stay clean across deterministic fuzz variants, with a per-case timeout so scanner hangs fail quickly.
 
@@ -161,7 +162,7 @@ uv run python quality/rule_quality_harness.py --runtime-scope=campaign
 UPDATE_GOLDENS=1 uv run python quality/rule_quality_harness.py --skip-runtime
 ```
 
-The default runtime scope keeps `run_all.sh` quick by running the ast-grep rule-pack validity check plus request-body and route-param metamorphic/fuzz checks. Use `--runtime-scope=campaign` for the recent Rust/TypeScript/Go detector campaign, or `--runtime-scope=all` to execute every paired security fixture in the golden. The golden also freezes the case ids in each runtime and robustness scope, so narrowing campaign/all/metamorphic/fuzz coverage requires an intentional golden diff. Only update the golden after reviewing the coverage diff and confirming the rule coverage change is intentional.
+The default runtime scope keeps `run_all.sh` quick by running Rust/TypeScript/Go ast-grep rule-pack validity checks plus request-body and route-param metamorphic/fuzz checks. Use `--runtime-scope=campaign` for the recent Rust/TypeScript/Go detector campaign, or `--runtime-scope=all` to execute every paired security fixture in the golden. The golden also freezes the case ids in each runtime and robustness scope, so narrowing campaign/all/metamorphic/fuzz coverage requires an intentional golden diff. Only update the golden after reviewing the coverage diff and confirming the rule coverage change is intentional.
 
 ### Scan Individual Buggy Files
 
