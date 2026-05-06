@@ -7572,7 +7572,7 @@
         },
         "require_substrings": [
           "Interpolated SQL reaches execution sink",
-          "memberships WHERE tenant",
+          "Path(tenant) extractor",
           "sqlx::query",
           "diesel::sql_query"
         ]
