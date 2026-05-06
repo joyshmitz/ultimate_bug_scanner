@@ -143,6 +143,25 @@ uv run python shareable/test_shareable_reports.py
 
 The script runs UBS twice against the Python buggy fixtures, verifies that the report JSON embeds git metadata and comparison deltas, and ensures the HTML preview renders correctly.
 
+### Rule-quality gates for Rust, TypeScript, and Go
+
+`test-suite/quality/rule_quality_harness.py` adds a focused quality gate for the three fastest-moving detector families: Rust, TypeScript/JavaScript, and Go. It invokes the real `ubs` binary or real module scripts against real fixtures, then checks:
+
+- The tracked golden coverage matrix in `test-suite/goldens/rule_coverage.json` still matches the manifest's paired security fixtures.
+- Every paired security fixture has both a buggy and clean manifest case, and every manifest path exists.
+- Curated request-body fixtures remain stable under benign comment/whitespace transforms.
+- Clean request-body fixtures stay clean across deterministic fuzz variants, with a per-case timeout so scanner hangs fail quickly.
+
+Run it directly when changing Rust, TypeScript, or Go rules:
+
+```bash
+cd test-suite
+uv run python quality/rule_quality_harness.py
+UPDATE_GOLDENS=1 uv run python quality/rule_quality_harness.py --skip-runtime
+```
+
+Only update the golden after reviewing the coverage diff and confirming the rule coverage change is intentional.
+
 ### Scan Individual Buggy Files
 
 ```bash
@@ -836,16 +855,17 @@ Key behavior:
 - Each case specifies the path to scan, additional UBS arguments (e.g.
   `--only=js`, `--fail-on-warning`), and expectations for `critical/warning/info`
   counts.
-- Runs use `--format=json` for reliable parsing; derived exit status is computed
-  from the severity totals so we can still ensure “buggy” cases fail even when
-  UBS returns `0` in JSON mode.
+- Runs parse JSON, TOON, meta-runner text, or module text output depending on
+  the case. Derived exit status is computed from severity totals where needed
+  so we can still ensure “buggy” cases fail when a mode reports findings without
+  a process-level nonzero exit.
 - Artifacts for every case (stdout, stderr, parsed summary) land under
   `test-suite/artifacts/<case-id>/` to speed up debugging scanner regressions.
 - Disabled cases are recorded with skip reasons so we can track the backlog
   explicitly. See `test-suite/TODO.md` for the full punch list.
 
-`run_all.sh` simply forwards to `run_manifest.py`, so CI and humans share the
-same entry point.
+`run_all.sh` runs the rule-quality harness first, then forwards arguments to
+`run_manifest.py`, followed by shareable-report and helper regression tests.
 
 ### CI automation
 
