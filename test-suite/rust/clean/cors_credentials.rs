@@ -15,8 +15,8 @@ fn is_allowed_origin(origin: &str) -> bool {
 }
 
 fn tower_http_allowlist_with_credentials() -> CorsLayer {
-    let app_origin = "https://app.example.com".parse::<HeaderValue>().unwrap();
-    let admin_origin = "https://admin.example.com".parse::<HeaderValue>().unwrap();
+    let app_origin = HeaderValue::from_static("https://app.example.com");
+    let admin_origin = HeaderValue::from_static("https://admin.example.com");
     CorsLayer::new()
         .allow_origin([app_origin, admin_origin])
         .allow_credentials(true)
@@ -34,7 +34,10 @@ fn reflected_origin_after_allowlist(request: Request, headers: &mut HeaderMap) {
 
     headers.insert(
         header::ACCESS_CONTROL_ALLOW_ORIGIN,
-        HeaderValue::from_str(origin).unwrap(),
+        match HeaderValue::from_str(origin) {
+            Ok(value) => value,
+            Err(_) => return,
+        },
     );
     headers.insert(
         header::ACCESS_CONTROL_ALLOW_CREDENTIALS,
