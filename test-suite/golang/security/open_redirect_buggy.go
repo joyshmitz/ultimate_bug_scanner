@@ -11,6 +11,11 @@ type redirectContext interface {
 	Redirect(int, string) error
 }
 
+func redirectFromRouteParam(w http.ResponseWriter, r *http.Request) {
+	target := chi.URLParam(r, "next")
+	http.Redirect(w, r, target, http.StatusFound)
+}
+
 func redirectFromQuery(w http.ResponseWriter, r *http.Request) {
 	next := r.URL.Query().Get("next")
 	http.Redirect(w, r, next, http.StatusFound)
@@ -24,9 +29,4 @@ func redirectFromHeader(w http.ResponseWriter, r *http.Request) {
 
 func redirectFromFramework(c redirectContext) error {
 	return c.Redirect(http.StatusFound, c.QueryParam("redirect"))
-}
-
-func redirectFromRouteParam(w http.ResponseWriter, r *http.Request) {
-	target := chi.URLParam(r, "next")
-	http.Redirect(w, r, target, http.StatusFound)
 }
