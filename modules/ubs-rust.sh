@@ -2214,6 +2214,9 @@ def analyze(path: Path, issues):
     for line_no, _ in enumerate(lines, start=1):
         if has_ignore(lines, line_no):
             continue
+        raw_line = strip_line_comments(lines[line_no - 1]).strip()
+        if not raw_line:
+            continue
         statement = logical_statement(lines, line_no).strip()
         if not statement:
             continue
@@ -2566,6 +2569,9 @@ def analyze(path: Path, issues):
     for line_no, _ in enumerate(lines, start=1):
         if has_ignore(lines, line_no):
             continue
+        raw_line = strip_line_comments(lines[line_no - 1]).strip()
+        if not raw_line:
+            continue
         statement = logical_statement(lines, line_no).strip()
         if not statement:
             continue
@@ -2848,6 +2854,9 @@ def analyze(path: Path, issues):
     for line_no, _ in enumerate(lines, start=1):
         if has_ignore(lines, line_no):
             continue
+        raw_line = strip_line_comments(lines[line_no - 1]).strip()
+        if not raw_line:
+            continue
         statement = logical_statement(lines, line_no).strip()
         if not statement:
             continue
@@ -2924,6 +2933,290 @@ collect_samples_request_url() {
     return
   fi
   mapfile -t lines < <(rust_request_url_matches | head -n "$limit")
+  printf '['
+  local i=0
+  local line
+  for line in "${lines[@]}"; do
+    [[ $i -gt 0 ]] && printf ','
+    printf '"%s"' "$(printf '%s' "$line" | json_escape)"
+    i=$((i + 1))
+  done
+  printf ']'
+}
+
+rust_cors_credential_matches() {
+  [[ "$have_python3" -eq 1 ]] || return 1
+  python3 - "$PROJECT_DIR" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+
+skip_dirs = {".git", "target", ".cargo", "node_modules"}
+
+credential_re = re.compile(
+    r'Access-Control-Allow-Credentials|ACCESS_CONTROL_ALLOW_CREDENTIALS|'
+    r'\ballow_credentials\s*\(\s*true\s*\)|\bsupports_credentials\s*\(',
+    re.IGNORECASE,
+)
+wildcard_re = re.compile(
+    r'\ballow_origin\s*\(\s*Any\s*\)|\ballow_any_origin\s*\(|'
+    r'\ballowed_origin_fn\s*\([^)]*\btrue\b|'
+    r'Access-Control-Allow-Origin[\s\S]{0,240}["\']\*["\']|'
+    r'ACCESS_CONTROL_ALLOW_ORIGIN[\s\S]{0,240}(?:from_static|from_str)?\s*\(\s*["\']\*["\']',
+    re.IGNORECASE | re.DOTALL,
+)
+origin_source_re = re.compile(
+    r'\b(?:req|request|headers|header_map)\s*\.\s*(?:headers\s*\(\s*\)\s*\.)?get\s*\(\s*["\']origin["\']\s*\)|'
+    r'\b(?:req|request)\s*\.\s*headers\s*\(\s*\)\s*\.\s*get\s*\(\s*header::ORIGIN\s*\)|'
+    r'\b(?:ORIGIN|header::ORIGIN)\b|'
+    r'\b(?:origin_header|request_origin|origin)\b',
+    re.IGNORECASE,
+)
+origin_sink_re = re.compile(
+    r'Access-Control-Allow-Origin|ACCESS_CONTROL_ALLOW_ORIGIN|'
+    r'\bappend_header\s*\(\s*\(\s*["\']Access-Control-Allow-Origin["\']|'
+    r'\binsert_header\s*\(\s*\(\s*["\']Access-Control-Allow-Origin["\']',
+    re.IGNORECASE,
+)
+assign_re = re.compile(
+    r'^\s*(?:let\s+(?:mut\s+)?|const\s+|static\s+)?'
+    r'(?P<lhs>[A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=;]+)?=\s*(?P<rhs>.+)$'
+)
+safe_re = re.compile(
+    r'\b(?:is_allowed_origin|is_trusted_origin|validate_origin|validated_origin|'
+    r'allowed_origins|trusted_origins|origin_allowlist|cors_allowlist|'
+    r'allowlisted_origin|safe_origin)\b',
+    re.IGNORECASE,
+)
+reject_re = re.compile(r'\b(?:return|return\s+Err|Err\s*\(|bail!\s*\(|ensure!\s*\()\b')
+
+
+def rust_files(path: Path):
+    if path.is_file():
+        if path.suffix == ".rs":
+            yield path
+        return
+    for child in path.rglob("*.rs"):
+        if skip_dirs.intersection(child.parts):
+            continue
+        yield child
+
+
+def strip_line_comments(line: str) -> str:
+    out = []
+    quote = ""
+    raw_hashes = None
+    escape = False
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        nxt = line[i + 1] if i + 1 < len(line) else ""
+        if raw_hashes is not None:
+            out.append(ch)
+            if ch == '"' and line.startswith("#" * raw_hashes, i + 1):
+                out.extend("#" * raw_hashes)
+                i += raw_hashes + 1
+                raw_hashes = None
+                continue
+            i += 1
+            continue
+        if quote:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == quote:
+                quote = ""
+            i += 1
+            continue
+        if ch == "r":
+            j = i + 1
+            while j < len(line) and line[j] == "#":
+                j += 1
+            if j < len(line) and line[j] == '"':
+                raw_hashes = j - i - 1
+                out.extend(line[i : j + 1])
+                i = j + 1
+                continue
+        if ch in ('"', "'"):
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "/" and nxt == "/":
+            break
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def logical_statement(lines, line_no, max_lines=16):
+    idx = line_no - 1
+    statement = strip_line_comments(lines[idx])
+    paren = statement.count("(") - statement.count(")")
+    brace = statement.count("{") - statement.count("}")
+    has_end = ";" in statement or "{" in statement or "}" in statement
+    lookahead = idx + 1
+    while (paren > 0 or brace > 0 or not has_end) and lookahead < len(lines) and lookahead < idx + max_lines:
+        nxt = strip_line_comments(lines[lookahead]).strip()
+        statement += " " + nxt
+        paren += nxt.count("(") - nxt.count(")")
+        brace += nxt.count("{") - nxt.count("}")
+        has_end = has_end or ";" in nxt or "{" in nxt or "}" in nxt
+        lookahead += 1
+    return statement
+
+
+def has_ignore(lines, line_no):
+    idx = line_no - 1
+    return (
+        0 <= idx < len(lines) and "ubs:ignore" in lines[idx]
+    ) or (
+        0 <= idx - 1 < len(lines) and "ubs:ignore" in lines[idx - 1]
+    )
+
+
+def source_line(lines, line_no):
+    idx = line_no - 1
+    if 0 <= idx < len(lines):
+        return lines[idx].strip().replace("\t", " ")
+    return ""
+
+
+def context(lines, line_no, before=18, after=18):
+    idx = line_no - 1
+    start = max(0, idx - before)
+    end = min(len(lines), idx + after + 1)
+    return "\n".join(strip_line_comments(line) for line in lines[start:end])
+
+
+def cors_context(lines, line_no, before=24, after=24):
+    idx = line_no - 1
+    start = max(0, idx - before)
+    end = min(len(lines), idx + after + 1)
+    boundary_re = re.compile(r'^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+[A-Za-z_][A-Za-z0-9_]*\b')
+    for pos in range(idx - 1, start - 1, -1):
+        if boundary_re.search(strip_line_comments(lines[pos])):
+            start = pos
+            break
+    for pos in range(idx + 1, end):
+        if boundary_re.search(strip_line_comments(lines[pos])):
+            end = pos
+            break
+    return "\n".join(strip_line_comments(line) for line in lines[start:end])
+
+
+def refs_in_text(text, refs):
+    return [name for name in refs if re.search(rf'\b{re.escape(name)}\b', text)]
+
+
+def has_safe_origin_guard(text, refs):
+    if not refs_in_text(text, refs):
+        return False
+    return bool(safe_re.search(text) and reject_re.search(text))
+
+
+def analyze(path: Path, issues):
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    if not credential_re.search(text):
+        return
+    lines = text.splitlines()
+    tainted_origins = {}
+    seen = set()
+    for line_no, _ in enumerate(lines, start=1):
+        if has_ignore(lines, line_no):
+            continue
+        raw_line = strip_line_comments(lines[line_no - 1]).strip()
+        if not raw_line:
+            continue
+        statement = logical_statement(lines, line_no).strip()
+        if not statement:
+            continue
+        assign = assign_re.match(statement)
+        if assign:
+            name = assign.group("lhs")
+            rhs = assign.group("rhs")
+            if origin_source_re.search(rhs) and not safe_re.search(rhs):
+                tainted_origins[name] = line_no
+            elif safe_re.search(rhs):
+                tainted_origins.pop(name, None)
+
+        statement_has_policy = (
+            credential_re.search(raw_line)
+            or wildcard_re.search(raw_line)
+            or origin_sink_re.search(raw_line)
+        )
+        if not statement_has_policy:
+            continue
+
+        window = cors_context(lines, line_no)
+        has_credentials = bool(credential_re.search(statement) or credential_re.search(window))
+        if not has_credentials:
+            continue
+
+        reason = ""
+        if wildcard_re.search(statement) or wildcard_re.search(window):
+            reason = "credentials enabled with wildcard/any origin"
+        elif origin_sink_re.search(statement) or origin_sink_re.search(window):
+            refs = refs_in_text(statement + "\n" + window, tainted_origins)
+            direct_origin = origin_source_re.search(statement) or origin_source_re.search(window)
+            if refs or direct_origin:
+                if has_safe_origin_guard(window, refs or ["origin", "request_origin", "origin_header"]):
+                    continue
+                reason = "credentials enabled with reflected request Origin"
+        if not reason:
+            continue
+        key = (path, line_no, reason)
+        if key in seen:
+            continue
+        seen.add(key)
+        issues.append((path, line_no, f"{source_line(lines, line_no)}  [{reason}]"))
+
+
+issues = []
+for rust_file in rust_files(root):
+    analyze(rust_file, issues)
+
+for path, line_no, code in issues:
+    print(f"{path}:{line_no}:{code}")
+PY
+}
+
+count_cors_credential_matches() {
+  if [[ "$have_python3" -eq 1 ]]; then
+    rust_cors_credential_matches | count_lines || true
+  else
+    return 1
+  fi
+}
+
+show_cors_credential_examples() {
+  local limit="${1:-$DETAIL_LIMIT}"
+  local printed=0
+  [[ "$have_python3" -eq 1 ]] || return 1
+  while IFS= read -r rawline; do
+    [[ -z "$rawline" ]] && continue
+    parse_grep_line "$rawline" || continue
+    print_code_sample "$PARSED_FILE" "$PARSED_LINE" "$PARSED_CODE"
+    printed=$((printed + 1))
+    [[ $printed -ge $limit || $printed -ge $MAX_DETAILED ]] && break
+  done < <(rust_cors_credential_matches | head -n "$limit")
+  [[ "$printed" -gt 0 ]]
+}
+
+collect_samples_cors_credential() {
+  local limit="${1:-$DETAIL_LIMIT}"
+  if [[ "$have_python3" -ne 1 ]]; then
+    printf '[]'
+    return
+  fi
+  mapfile -t lines < <(rust_cors_credential_matches | head -n "$limit")
   printf '['
   local i=0
   local line
@@ -6198,7 +6491,7 @@ fi
 # ═══════════════════════════════════════════════════════════════════════════
 if category_enabled 8; then
 print_header "8. SECURITY FINDINGS"
-print_category "Detects: TLS verification disabled, weak hash algos, security-sensitive non-crypto randomness, timing-unsafe secret comparisons, JWT verification bypasses, shell command injection, request-derived response headers/open redirects/outbound URLs, HTTP URLs, secrets" \
+print_category "Detects: TLS verification disabled, weak hash algos, security-sensitive non-crypto randomness, timing-unsafe secret comparisons, JWT verification bypasses, shell command injection, request-derived response headers/open redirects/outbound URLs, credentialed CORS, HTTP URLs, secrets" \
   "Security misconfigurations can lead to credential leaks, command injection, and MITM attacks"
 
 print_subheader "Weak hash algorithms (MD5/SHA1)"
@@ -6349,6 +6642,17 @@ if [ "$request_url_hits" -gt 0 ]; then
   add_finding "critical" "$request_url_hits" "Request-derived URL reaches outbound HTTP client" "Validate outbound URLs with explicit scheme and host allow-lists before sending client requests" "${CATEGORY_NAME[8]}" "$(collect_samples_request_url 3)"
 else
   print_finding "good" "No request-derived outbound HTTP URL sinks detected"
+fi
+
+print_subheader "CORS credential policy"
+cors_credential_hits=$(count_cors_credential_matches || echo 0)
+cors_credential_hits=$(printf '%s\n' "${cors_credential_hits:-0}" | awk 'END{print $0+0}')
+if [ "$cors_credential_hits" -gt 0 ]; then
+  print_finding "critical" "$cors_credential_hits" "Credentialed wildcard/reflected CORS" "Use an explicit trusted origin allow-list and emit Vary: Origin when Access-Control-Allow-Credentials is true"
+  show_cors_credential_examples 3 || true
+  add_finding "critical" "$cors_credential_hits" "Credentialed wildcard/reflected CORS" "Use an explicit trusted origin allow-list and emit Vary: Origin when Access-Control-Allow-Credentials is true" "${CATEGORY_NAME[8]}" "$(collect_samples_cors_credential 3)"
+else
+  print_finding "good" "No unsafe CORS credential policy detected"
 fi
 
 print_subheader "Plain http:// URLs"

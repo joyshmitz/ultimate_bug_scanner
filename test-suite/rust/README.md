@@ -12,8 +12,9 @@
 | `buggy/open_redirect.rs` | Request/header/host redirect targets sent to redirects or Location headers |
 | `buggy/header_injection.rs` | Request/header values sent to non-Location response headers without CR/LF validation |
 | `buggy/ssrf.rs` | Request/header/env/CLI URL values sent through outbound HTTP clients |
+| `buggy/cors_credentials.rs` | Credentialed wildcard or reflected-origin CORS policies |
 | `buggy/math_precision.rs` | Float equality for money |
-| Clean files (`clean/*.rs`) | `Result` handling, JoinHandle waiting, integer cents, safe temp-file creation, safe redirect validation, safe response-header values, safe outbound URL validation |
+| Clean files (`clean/*.rs`) | `Result` handling, JoinHandle waiting, integer cents, safe temp-file creation, safe redirect validation, safe response-header values, safe outbound URL validation, safe CORS origin allow-lists |
 
 ```bash
 ubs --only=rust --fail-on-warning test-suite/rust/buggy

@@ -7350,6 +7350,68 @@
       }
     },
     {
+      "id": "rust-cors-credentials-buggy",
+      "description": "Rust CORS responses must not combine credentials with wildcard origins or reflected request Origin values without an allow-list.",
+      "path": "test-suite/rust/buggy/cors_credentials.rs",
+      "language": "rust",
+      "tags": [
+        "rust",
+        "security",
+        "cors",
+        "buggy"
+      ],
+      "ubs_bin": "../modules/ubs-rust.sh",
+      "args": [
+        "--no-cargo",
+        "--only=8",
+        "--fail-on-warning"
+      ],
+      "expect": {
+        "exit_code": "nonzero",
+        "totals": {
+          "critical": {
+            "min": 1
+          }
+        },
+        "require_substrings": [
+          "Credentialed wildcard/reflected CORS",
+          "allow_credentials",
+          "allow_any_origin"
+        ]
+      }
+    },
+    {
+      "id": "rust-cors-credentials-clean",
+      "description": "Rust CORS credentials with explicit origin allow-list validation and Vary: Origin should stay clean.",
+      "path": "test-suite/rust/clean/cors_credentials.rs",
+      "language": "rust",
+      "tags": [
+        "rust",
+        "security",
+        "cors",
+        "clean"
+      ],
+      "ubs_bin": "../modules/ubs-rust.sh",
+      "args": [
+        "--no-cargo",
+        "--only=8"
+      ],
+      "expect": {
+        "exit_code": "zero",
+        "totals": {
+          "critical": {
+            "max": 0
+          },
+          "warning": {
+            "max": 0
+          }
+        },
+        "forbid_substrings": [
+          "Credentialed wildcard/reflected CORS"
+        ]
+      }
+    },
+    {
       "id": "rust-async-errors-buggy",
       "description": "Rust awaits lacking ?/match handling + tokio::spawn handles dropped.",
       "path": "test-suite/rust/async_errors/buggy",
