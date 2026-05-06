@@ -5529,6 +5529,212 @@ if [ "$ssrf_request_count" -gt 0 ]; then
   done <<<"$ssrf_request_samples"
 fi
 
+print_subheader "SSRF-prone proxy/rewrite targets"
+proxy_ssrf_report=$(python3 - "$PROJECT_DIR" <<'PY' 2>/dev/null
+import os
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+exts = {'.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'}
+skip_dirs = {'.git', 'node_modules', 'dist', 'build', 'coverage', '.next', '.cache', '.turbo'}
+
+assignment_re = re.compile(r'\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\b[^=]*=\s*(.*)')
+urlish_name_re = re.compile(
+    r'(?:url|uri|target|callback|webhook|endpoint|proxy|upstream|backend|remote|origin|host|hostname|rewrite|router)',
+    re.IGNORECASE,
+)
+source_re = re.compile(
+    r'(?:'
+    r'\b(?:req|request|ctx|context|event)\s*\.\s*(?:query|body|params|headers|cookies|nextUrl|url)\b|'
+    r'\b(?:req|request|ctx|context|event)\s*\.\s*(?:host|hostname|protocol|originalUrl|baseUrl)\b|'
+    r'\b(?:req|request|ctx|context|event)\s*\.\s*(?:get|header)\s*\(\s*[\'"`](?:host|x-forwarded-host|x-forwarded-proto|origin|x-upstream|x-target|x-proxy-target)[\'"`]\s*\)|'
+    r'\b(?:req|request|ctx|context|event)\s*\[\s*[\'"`](?:query|body|params|headers|url)[\'"`]\s*\]|'
+    r'\b(?:query|body|params|headers|searchParams|queryParams)\s*\.\s*get\s*\(|'
+    r'\b(?:searchParams|queryParams)\s*\.\s*get\s*\(|'
+    r'\bheaders\s*\(\s*\)\s*\.\s*get\s*\('
+    r')',
+    re.IGNORECASE,
+)
+sink_re = re.compile(
+    r'(?:'
+    r'\bcreateProxyMiddleware\s*\(|'
+    r'\bhttpProxy\s*\.\s*createProxyServer\s*\(|'
+    r'\bcreateProxyServer\s*\(|'
+    r'\b[A-Za-z_$][A-Za-z0-9_$]*\s*\.\s*(?:web|ws)\s*\(|'
+    r'\bNextResponse\s*\.\s*rewrite\s*\('
+    r')'
+)
+safe_re = re.compile(
+    r'(?:'
+    r'\b(?:validate|assert|ensure|require|check)[A-Za-z0-9_$]*(?:Proxy|ProxyTarget|ProxyUrl|ProxyURL|Url|URL|Host|Origin|Outbound|Allowed|Trusted)[A-Za-z0-9_$]*\s*\(|'
+    r'\b(?:is|has)[A-Za-z0-9_$]*(?:Allowed|Trusted|Safe)[A-Za-z0-9_$]*(?:Proxy|ProxyTarget|ProxyUrl|ProxyURL|Url|URL|Host|Origin)?[A-Za-z0-9_$]*\s*\(|'
+    r'\b(?:safe|trusted|allowed)[A-Za-z0-9_$]*(?:Proxy|ProxyTarget|ProxyUrl|ProxyURL|Url|URL|Host|Origin|Target)[A-Za-z0-9_$]*\s*\(|'
+    r'\bALLOWED_(?:PROXY_)?(?:HOSTS|ORIGINS|URLS|TARGETS)\b|'
+    r'\ballowed(?:Proxy)?(?:Hosts|Origins|Urls|URLs|Targets)\b'
+    r')',
+    re.IGNORECASE,
+)
+
+def code_line(source_line):
+    stripped = source_line.strip()
+    if not stripped or stripped.startswith(("//", "/*", "*")):
+        return ""
+    out = []
+    quote = ""
+    escaped = False
+    i = 0
+    while i < len(source_line):
+        ch = source_line[i]
+        nxt = source_line[i + 1] if i + 1 < len(source_line) else ""
+        if quote:
+            out.append(ch)
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote:
+                quote = ""
+            i += 1
+            continue
+        if ch in ("'", '"', "`"):
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "/" and nxt == "/":
+            break
+        if ch == "/" and nxt == "*":
+            end = source_line.find("*/", i + 2)
+            if end == -1:
+                break
+            i = end + 2
+            continue
+        out.append(ch)
+        i += 1
+    return ''.join(out)
+
+def statement_from(lines, idx, max_lines=16):
+    parts = []
+    paren_balance = 0
+    brace_balance = 0
+    saw_code = False
+    for line_idx in range(idx, min(len(lines), idx + max_lines)):
+        current = code_line(lines[line_idx]).strip()
+        if not current:
+            continue
+        parts.append(current)
+        saw_code = True
+        paren_balance += current.count('(') - current.count(')')
+        brace_balance += current.count('{') - current.count('}')
+        if line_idx > idx and paren_balance <= 0 and brace_balance <= 0:
+            break
+        if ';' in current and paren_balance <= 0 and brace_balance <= 0:
+            break
+    return ' '.join(parts) if saw_code else ""
+
+def context_from(lines, idx, max_lines=10):
+    start = max(0, idx - max_lines)
+    for line_idx in range(idx - 1, start - 1, -1):
+        if not lines[line_idx].strip():
+            start = line_idx + 1
+            break
+    return '\n'.join(
+        clean
+        for source_line in lines[start:idx + 1]
+        for clean in [code_line(source_line)]
+        if clean.strip()
+    )
+
+def has_safe_validation(text, var_name=""):
+    if not safe_re.search(text):
+        return False
+    return not var_name or re.search(rf'\b{re.escape(var_name)}\b', text)
+
+def tainted_ref(text, tainted_vars):
+    for name in tainted_vars:
+        if re.search(rf'\b{re.escape(name)}\b', text):
+            return name
+    return ""
+
+issues = []
+if root.is_file():
+    candidates = [root]
+    sample_root = root.parent
+else:
+    candidates = []
+    sample_root = root
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+        for fname in filenames:
+            candidates.append(Path(dirpath) / fname)
+
+for path in candidates:
+    if path.suffix.lower() not in exts:
+        continue
+    try:
+        lines = path.read_text(encoding='utf-8', errors='ignore').splitlines()
+    except Exception:
+        continue
+    text = '\n'.join(lines)
+    if not (source_re.search(text) and sink_re.search(text)):
+        continue
+    tainted_vars = {}
+    seen_lines = set()
+    for idx, line in enumerate(lines):
+        stripped = code_line(line).strip()
+        if not stripped or 'ubs:ignore' in stripped:
+            continue
+        statement = statement_from(lines, idx)
+        assignment = assignment_re.search(stripped)
+        if assignment:
+            name = assignment.group(1)
+            if (
+                urlish_name_re.search(name)
+                and not has_safe_validation(statement)
+                and (source_re.search(statement) or tainted_ref(statement, tainted_vars))
+            ):
+                tainted_vars[name] = idx
+        if not sink_re.search(stripped):
+            continue
+        if not statement or 'ubs:ignore' in statement or has_safe_validation(statement):
+            continue
+        unsafe = bool(source_re.search(statement))
+        if not unsafe:
+            context = context_from(lines, idx)
+            for name, source_idx in tainted_vars.items():
+                if source_idx <= idx and re.search(rf'\b{re.escape(name)}\b', statement):
+                    if not has_safe_validation(context, name):
+                        unsafe = True
+                    break
+        if not unsafe or idx in seen_lines:
+            continue
+        seen_lines.add(idx)
+        try:
+            rel = path.relative_to(sample_root)
+        except ValueError:
+            rel = path
+        issues.append((str(rel), idx + 1, stripped.replace('\t', ' ')))
+
+print(len(issues))
+for entry in issues[:25]:
+    print('\t'.join(str(part) for part in entry))
+PY
+)
+proxy_ssrf_count=$(printf '%s\n' "$proxy_ssrf_report" | head -n1 | awk 'END{print $0+0}')
+proxy_ssrf_samples=$(printf '%s\n' "$proxy_ssrf_report" | tail -n +2)
+if [ "$proxy_ssrf_count" -gt 0 ]; then
+  print_finding "warning" "$proxy_ssrf_count" "Request-derived proxy target reaches server-side proxy/rewrite" "Validate proxy targets with an HTTPS scheme, explicit host allow-list, and private-address blocking before proxying or rewriting"
+  sample_limit=4
+  while IFS=$'\t' read -r sample_path sample_line sample_text; do
+    [ -z "$sample_path" ] && continue
+    print_code_sample "$sample_path" "$sample_line" "$sample_text"
+    sample_limit=$((sample_limit - 1))
+    [ "$sample_limit" -le 0 ] && break
+  done <<<"$proxy_ssrf_samples"
+fi
+
 print_subheader "HTTP response header injection"
 header_injection_report=$(python3 - "$PROJECT_DIR" <<'PY' 2>/dev/null
 import os
