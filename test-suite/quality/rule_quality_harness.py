@@ -223,6 +223,22 @@ def build_rule_coverage(manifest: dict[str, Any]) -> dict[str, Any]:
         "scope": "security fixture pairs for Rust, TypeScript/JavaScript, and Go",
         "languages": by_language,
         "pairs": pairs,
+        "runtime_scopes": runtime_scopes_from_pairs(pairs),
+    }
+
+
+def runtime_scopes_from_pairs(pairs: list[dict[str, Any]]) -> dict[str, list[str]]:
+    campaign: list[str] = []
+    all_cases: list[str] = []
+    for pair in pairs:
+        case_ids = [pair["buggy_case"], pair["clean_case"]]
+        all_cases.extend(case_ids)
+        if pair["slug"] in CAMPAIGN_RUNTIME_SLUGS.get(pair["language"], set()):
+            campaign.extend(case_ids)
+    return {
+        "smoke": list(SMOKE_CASE_IDS),
+        "campaign": campaign,
+        "all": all_cases,
     }
 
 
@@ -255,17 +271,13 @@ def case_by_id(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def runtime_case_ids_for_scope(coverage: dict[str, Any], scope: str) -> tuple[str, ...]:
-    if scope == "smoke":
-        return SMOKE_CASE_IDS
-    selected: list[str] = []
-    for pair in coverage["pairs"]:
-        language = pair["language"]
-        slug = pair["slug"]
-        if scope == "campaign" and slug not in CAMPAIGN_RUNTIME_SLUGS.get(language, set()):
-            continue
-        selected.append(pair["buggy_case"])
-        selected.append(pair["clean_case"])
-    return tuple(selected)
+    runtime_scopes = coverage.get("runtime_scopes", {})
+    if not isinstance(runtime_scopes, dict) or scope not in runtime_scopes:
+        raise AssertionError(f"runtime scope {scope!r} is missing from coverage golden")
+    case_ids = runtime_scopes[scope]
+    if not isinstance(case_ids, list) or not all(isinstance(case_id, str) for case_id in case_ids):
+        raise AssertionError(f"runtime scope {scope!r} must be a list of case ids")
+    return tuple(case_ids)
 
 
 def command_for_case(
