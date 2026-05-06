@@ -4569,6 +4569,7 @@
           "Interpolated SQL reaches execution sink",
           "tenants WHERE slug",
           "accounts WHERE slug",
+          "memberships WHERE tenant",
           "owner = $1",
           "$queryRawUnsafe",
           "$executeRawUnsafe"
@@ -4920,7 +4921,8 @@
           }
         },
         "require_substrings": [
-          "Request-derived URL reaches outbound HTTP client"
+          "Request-derived URL reaches outbound HTTP client",
+          "chi.URLParam"
         ]
       }
     },
@@ -5043,7 +5045,8 @@
           }
         },
         "require_substrings": [
-          "Unvalidated redirect from request data"
+          "Unvalidated redirect from request data",
+          "chi.URLParam"
         ]
       }
     },
@@ -7569,6 +7572,7 @@
         },
         "require_substrings": [
           "Interpolated SQL reaches execution sink",
+          "memberships WHERE tenant",
           "sqlx::query",
           "diesel::sql_query"
         ]

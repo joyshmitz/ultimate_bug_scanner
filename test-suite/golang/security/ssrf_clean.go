@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+
+	"github.com/go-chi/chi/v5"
 )
 
 var allowedHosts = map[string]bool{
@@ -52,6 +54,14 @@ func fetchAllowedRequest(r *http.Request, client *http.Client) (*http.Response, 
 
 func fetchAllowedHost(r *http.Request) (*http.Response, error) {
 	target, err := safeOutboundURL("https://" + r.Host + "/status")
+	if err != nil {
+		return nil, err
+	}
+	return http.Get(target)
+}
+
+func fetchAllowedRouteHost(r *http.Request) (*http.Response, error) {
+	target, err := safeOutboundURL("https://" + chi.URLParam(r, "host") + "/status")
 	if err != nil {
 		return nil, err
 	}

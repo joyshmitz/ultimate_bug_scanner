@@ -1861,16 +1861,61 @@ def has_ignore(lines, index):
     )
 
 
+def split_destructure_parts(blob: str):
+    parts = []
+    start = 0
+    depth = 0
+    quote = ''
+    escape = False
+    for idx, ch in enumerate(blob):
+        if quote:
+            if escape:
+                escape = False
+            elif ch == '\\':
+                escape = True
+            elif ch == quote:
+                quote = ''
+            continue
+        if ch in ('"', "'", '`'):
+            quote = ch
+            continue
+        if ch in '({[':
+            depth += 1
+            continue
+        if ch in ')}]' and depth > 0:
+            depth -= 1
+            continue
+        if ch == ',' and depth == 0:
+            parts.append(blob[start:idx].strip())
+            start = idx + 1
+    tail = blob[start:].strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
 def names_from_destructure(blob: str):
     names = []
-    for part in blob.split(','):
+    for part in split_destructure_parts(blob):
         token = part.strip().split('=')[0].strip()
         if ':' in token:
             token = token.split(':', 1)[1].strip()
+            if token.startswith('{') and token.endswith('}'):
+                names.extend(names_from_destructure(token[1:-1]))
+                continue
         if token.startswith('...'):
             token = token[3:].strip()
         if re.match(r'^[A-Za-z_$][\w$]*$', token):
             names.append(token)
+    return names
+
+
+def route_param_names_from_signature(statement: str):
+    if 'params' not in statement or ('function' not in statement and '=>' not in statement):
+        return []
+    names = []
+    for match in re.finditer(r'\bparams\s*:\s*\{([^{}]+)\}', statement):
+        names.extend(names_from_destructure(match.group(1)))
     return names
 
 
@@ -1975,6 +2020,7 @@ def analyze(path: Path, issues):
         statement = statement_from(lines, idx)
         if not statement or 'ubs:ignore' in statement:
             continue
+        tainted.update(route_param_names_from_signature(statement))
 
         destruct = destructure_re.match(statement)
         if destruct:

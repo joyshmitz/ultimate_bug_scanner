@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/go-chi/chi/v5"
 )
 
 func safeRedirectTarget(raw string) string {
@@ -32,4 +34,9 @@ func locationWithSafeHelper(w http.ResponseWriter, r *http.Request) {
 	target := safeRedirectTarget(r.Header.Get("X-Return-To"))
 	w.Header().Set("Location", target)
 	w.WriteHeader(http.StatusFound)
+}
+
+func redirectRouteParamWithSafeHelper(w http.ResponseWriter, r *http.Request) {
+	target := safeRedirectTarget(chi.URLParam(r, "next"))
+	http.Redirect(w, r, target, http.StatusFound)
 }

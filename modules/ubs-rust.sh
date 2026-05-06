@@ -2962,6 +2962,7 @@ source_re = re.compile(
     r'(?:user|username|email|name|status|tenant|account|id|role|filter|search|sort|limit|offset|where|order|table|column)\b'
     r'|\b(?:req|request|http_request)\s*\.\s*(?:query_string|uri|headers|header|param|query|path|match_info)\s*\('
     r'|\b(?:headers|header_map)\s*\.\s*get\s*\('
+    r'|\bPath\s*\('
     r'|\b(?:std::)?env::args(?:_os)?\s*\(',
     re.IGNORECASE,
 )
@@ -2988,6 +2989,9 @@ push_re = re.compile(
 query_macro_re = re.compile(
     r'\bsqlx::query(?:_as|_scalar)?!\s*\(|\bquery(?:_as|_scalar)?!\s*\(',
     re.IGNORECASE,
+)
+path_extractor_re = re.compile(
+    r'\bPath\s*\(\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\)\s*:\s*Path\b'
 )
 parameterized_re = re.compile(
     r'\.(?:bind|push_bind)\s*\(|\bparams!\s*\[|\bnamed_params!\s*\{|\bbind\s*::\s*<',
@@ -3221,6 +3225,13 @@ def sink_is_compile_time_checked(statement: str) -> bool:
     return bool(query_macro_re.search(statement))
 
 
+def path_extractor_taints(statement: str):
+    return {
+        match.group("name"): {"path": [f"Path({match.group('name')}) extractor"]}
+        for match in path_extractor_re.finditer(statement)
+    }
+
+
 def analyze(path: Path, issues):
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -3239,10 +3250,14 @@ def analyze(path: Path, issues):
         raw_line = strip_line_comments(lines[line_no - 1]).strip()
         if not raw_line:
             continue
-        if re.match(r'^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+\w+\b', raw_line) and not sink_re.search(raw_line):
-            continue
         statement = logical_statement(lines, line_no).strip()
         if not statement:
+            continue
+        if re.match(r'^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+\w+\b', raw_line):
+            tainted.clear()
+            dirty_sql.clear()
+            sql_vars.clear()
+            tainted.update(path_extractor_taints(statement))
             continue
 
         assign = assign_re.match(statement)

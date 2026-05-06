@@ -3,6 +3,8 @@ package security
 import (
 	"fmt"
 	"net/http"
+
+	"github.com/go-chi/chi/v5"
 )
 
 func proxyRawURL(r *http.Request) (*http.Response, error) {
@@ -26,6 +28,12 @@ func fetchBuiltRequest(r *http.Request, client *http.Client) (*http.Response, er
 
 func fetchByHostPath(r *http.Request) (*http.Response, error) {
 	host := r.PathValue("host")
+	target := fmt.Sprintf("http://%s/internal/status", host)
+	return http.Get(target)
+}
+
+func fetchByChiRouteHost(r *http.Request) (*http.Response, error) {
+	host := chi.URLParam(r, "host")
 	target := fmt.Sprintf("http://%s/internal/status", host)
 	return http.Get(target)
 }

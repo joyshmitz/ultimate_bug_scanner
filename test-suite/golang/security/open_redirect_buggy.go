@@ -1,6 +1,10 @@
 package security
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+)
 
 type redirectContext interface {
 	QueryParam(string) string
@@ -20,4 +24,9 @@ func redirectFromHeader(w http.ResponseWriter, r *http.Request) {
 
 func redirectFromFramework(c redirectContext) error {
 	return c.Redirect(http.StatusFound, c.QueryParam("redirect"))
+}
+
+func redirectFromRouteParam(w http.ResponseWriter, r *http.Request) {
+	target := chi.URLParam(r, "next")
+	http.Redirect(w, r, target, http.StatusFound)
 }

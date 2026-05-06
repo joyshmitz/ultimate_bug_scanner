@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use axum::extract::{Json, Query};
+use axum::extract::{Json, Path, Query};
 use rusqlite::params;
 
 struct Client;
@@ -25,6 +25,13 @@ async fn search_users(Query(params): Query<HashMap<String, String>>, pool: &Pool
     };
     let sql = format!("SELECT id, email FROM users WHERE email = '{}'", email);
     let _rows = sqlx::query(&sql).fetch_all(pool).await;
+}
+
+fn route_path_query(Path(tenant): Path<String>, conn: &Connection) {
+    let _rows = conn.query(
+        &format!("SELECT id FROM memberships WHERE tenant = '{}'", tenant),
+        &[],
+    );
 }
 
 fn update_status(Json(payload): Json<Payload>, conn: &Connection) {
