@@ -239,6 +239,7 @@ def build_rule_coverage(manifest: dict[str, Any]) -> dict[str, Any]:
         "languages": by_language,
         "pairs": pairs,
         "runtime_scopes": runtime_scopes_from_pairs(pairs),
+        "robustness_scopes": robustness_scopes_from_constants(),
     }
 
 
@@ -254,6 +255,13 @@ def runtime_scopes_from_pairs(pairs: list[dict[str, Any]]) -> dict[str, list[str
         "smoke": list(SMOKE_CASE_IDS),
         "campaign": campaign,
         "all": all_cases,
+    }
+
+
+def robustness_scopes_from_constants() -> dict[str, list[str]]:
+    return {
+        "metamorphic": list(METAMORPHIC_CASE_IDS),
+        "clean_fuzz": list(CLEAN_FUZZ_CASE_IDS),
     }
 
 
