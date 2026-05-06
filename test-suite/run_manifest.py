@@ -19,11 +19,12 @@ from typing import Any, Dict, List, Optional, Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = Path(__file__).with_name("manifest.json")
+JSON_DECODER = json.JSONDecoder()
 
 
 def load_manifest(path: Path) -> Dict[str, Any]:
     try:
-        data = json.loads(path.read_text())
+        data = JSON_DECODER.decode(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         sys.exit(f"Manifest not found: {path}")
     except json.JSONDecodeError as exc:
