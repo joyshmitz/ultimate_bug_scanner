@@ -4,10 +4,11 @@ type RequestLike = {
 };
 
 type Database = {
-  query(sql: string): Promise<unknown>;
+  query(sql: string, values?: readonly unknown[]): Promise<unknown>;
 };
 
 type PrismaLike = {
+  $queryRaw(strings: TemplateStringsArray, ...values: readonly unknown[]): Promise<unknown>;
   $queryRawUnsafe(sql: string): Promise<unknown>;
   $executeRawUnsafe(sql: string): Promise<unknown>;
 };
@@ -22,6 +23,11 @@ export async function rawDbQueryFromQuery(req: RequestLike, db: Database): Promi
   return db.query(sql);
 }
 
+export async function dynamicTableWithPlaceholder(req: RequestLike, db: Database): Promise<unknown> {
+  const table = req.query.table;
+  return db.query("SELECT id FROM " + table + " WHERE owner = $1", ["system"]);
+}
+
 export async function prismaUnsafeTemplate(req: RequestLike, prisma: PrismaLike): Promise<unknown> {
   const status = req.body.status;
   return prisma.$queryRawUnsafe(`SELECT * FROM invoices WHERE status = '${status}'`);
@@ -30,6 +36,11 @@ export async function prismaUnsafeTemplate(req: RequestLike, prisma: PrismaLike)
 export async function prismaUnsafeConcat(req: RequestLike, prisma: PrismaLike): Promise<unknown> {
   const tenant = req.query.tenant;
   return prisma.$executeRawUnsafe("DELETE FROM tenant_jobs WHERE tenant = '" + tenant + "'");
+}
+
+export async function safeTagDoesNotHideUnsafeSameStatement(req: RequestLike, prisma: PrismaLike): Promise<unknown> {
+  const tenant = req.query.tenant;
+  return prisma.$queryRaw`SELECT 1`.then(() => prisma.$executeRawUnsafe("DELETE FROM tenant_jobs WHERE tenant = '" + tenant + "'"));
 }
 
 export async function sequelizeInterpolated(req: RequestLike, sequelize: SequelizeLike): Promise<unknown> {

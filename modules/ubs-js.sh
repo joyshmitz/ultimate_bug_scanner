@@ -1758,6 +1758,10 @@ safe_sql_re = re.compile(
     r'\b(?:knex|db|pool|connection|client)\.[A-Za-z_$][\w$]*\s*\([\s\S]*?\)\s*\.\s*(?:where|andWhere|orWhere)\s*\(',
     re.IGNORECASE,
 )
+safe_tagged_template_re = re.compile(
+    r'\b(?:sql|Prisma\.sql)\s*`|\$queryRaw\s*`|\$executeRaw\s*`',
+    re.IGNORECASE,
+)
 
 
 def iter_files(path: Path):
@@ -1848,8 +1852,57 @@ def names_from_destructure(blob: str):
     return names
 
 
+def mask_literals_for_refs(expr: str):
+    out = []
+    quote = ''
+    escape = False
+    template_expr_depth = 0
+    i = 0
+    while i < len(expr):
+        ch = expr[i]
+        nxt = expr[i + 1] if i + 1 < len(expr) else ''
+        if quote:
+            if quote == '`' and ch == '$' and nxt == '{':
+                out.append(' ')
+                out.append(' ')
+                i += 2
+                quote = ''
+                template_expr_depth = 1
+                continue
+            out.append(' ')
+            if escape:
+                escape = False
+            elif ch == '\\':
+                escape = True
+            elif ch == quote:
+                quote = ''
+            i += 1
+            continue
+        if template_expr_depth:
+            out.append(ch)
+            if ch in ('"', "'", '`'):
+                quote = ch
+            elif ch == '{':
+                template_expr_depth += 1
+            elif ch == '}':
+                template_expr_depth -= 1
+                if template_expr_depth == 0:
+                    quote = '`'
+            i += 1
+            continue
+        if ch in ('"', "'", '`'):
+            quote = ch
+            out.append(' ')
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return ''.join(out)
+
+
 def refs(expr: str, names: set[str]):
-    return [name for name in names if re.search(rf'(?<![A-Za-z0-9_$]){re.escape(name)}(?![A-Za-z0-9_$])', expr)]
+    haystack = mask_literals_for_refs(expr)
+    return [name for name in names if re.search(rf'(?<![A-Za-z0-9_$]){re.escape(name)}(?![A-Za-z0-9_$])', haystack)]
 
 
 def has_untrusted(expr: str, tainted: set[str]):
@@ -1864,6 +1917,12 @@ def safe_parameterized(statement: str):
     if unsafe_sink_re.search(statement):
         return False
     return bool(safe_sql_re.search(statement))
+
+
+def only_safe_tagged_templates(statement: str):
+    return bool(safe_tagged_template_re.search(statement)) and not sql_sink_re.search(
+        safe_tagged_template_re.sub('', statement)
+    )
 
 
 def source_line(lines, index):
@@ -1914,7 +1973,7 @@ def analyze(path: Path, issues):
             continue
         if not sql_sink_re.search(statement):
             continue
-        if safe_parameterized(statement):
+        if only_safe_tagged_templates(statement):
             continue
 
         sql_var_refs = refs(statement, tainted_sql)
@@ -1922,6 +1981,10 @@ def analyze(path: Path, issues):
         dynamic = dynamic_sql(statement)
         unsafe = bool(unsafe_sink_re.search(statement))
         has_inline_sql = bool(sql_keyword_re.search(statement))
+        if safe_parameterized(statement) and not (
+            sql_var_refs or (has_inline_sql and dynamic and untrusted)
+        ):
+            continue
         if not (
             sql_var_refs
             or (has_inline_sql and dynamic and untrusted)
@@ -7994,7 +8057,7 @@ sql_injection_hits=$(count_sql_injection_matches || echo 0)
 sql_injection_hits=$(printf '%s\n' "${sql_injection_hits:-0}" | awk 'END{print $0+0}')
 if [ "$sql_injection_hits" -gt 0 ]; then
   print_finding "critical" "$sql_injection_hits" "Interpolated SQL reaches execution sink" "Use parameterized queries, Prisma safe tagged templates, bind/replacements, or query-builder where clauses instead of raw string construction"
-  show_sql_injection_examples 3 || true
+  show_sql_injection_examples "$DETAIL_LIMIT" || true
 else
   print_finding "good" "No request-derived raw SQL construction detected"
 fi
