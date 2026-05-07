@@ -290,6 +290,7 @@ def build_rule_coverage(manifest: dict[str, Any]) -> dict[str, Any]:
             ),
         }
 
+    runtime_scopes = runtime_scopes_from_pairs(pairs, cases)
     robustness_scopes = robustness_scopes_from_pairs(pairs, cases)
     return {
         "version": 2,
@@ -297,13 +298,17 @@ def build_rule_coverage(manifest: dict[str, Any]) -> dict[str, Any]:
         "clean_fuzz_budget_scopes": clean_fuzz_budget_scopes_from_robustness(
             robustness_scopes,
         ),
+        "expectation_strength_scopes": expectation_strength_scopes_from_runtime(
+            runtime_scopes,
+            cases,
+        ),
         "languages": by_language,
         "metamorphic_transform_scopes": metamorphic_transform_scopes_from_robustness(
             robustness_scopes,
             cases,
         ),
         "pairs": pairs,
-        "runtime_scopes": runtime_scopes_from_pairs(pairs, cases),
+        "runtime_scopes": runtime_scopes,
         "robustness_scopes": robustness_scopes,
     }
 
@@ -436,6 +441,88 @@ def clean_fuzz_budget_scopes_from_robustness(
         }
         for scope, scope_cases in sorted(robustness_scopes.items())
     }
+
+
+def expectation_side(case: dict[str, Any]) -> str:
+    side, _ = case_side_and_slug(case)
+    if side:
+        return side
+    tags = set(case.get("tags", []))
+    if "buggy" in tags:
+        return "buggy"
+    if "clean" in tags:
+        return "clean"
+    return "unknown"
+
+
+def expectation_strength_scopes_from_runtime(
+    runtime_scopes: dict[str, list[str]],
+    cases: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    cases_by_id = {case["id"]: case for case in cases}
+    strength_scopes: dict[str, dict[str, Any]] = {}
+    for scope, case_ids in sorted(runtime_scopes.items()):
+        scoped_cases = [
+            cases_by_id[case_id]
+            for case_id in case_ids
+            if cases_by_id[case_id].get("language") in CAMPAIGN_COVERAGE_LANGUAGES
+        ]
+        weak_cases: list[dict[str, Any]] = []
+        for case in scoped_cases:
+            side = expectation_side(case)
+            expect = case.get("expect", {})
+            totals = expect.get("totals", {})
+            reasons: list[str] = []
+            if side == "buggy" and not expect.get("require_substrings"):
+                reasons.append("buggy_missing_require_substrings")
+            if side == "clean":
+                if not expect.get("forbid_substrings"):
+                    reasons.append("clean_missing_forbid_substrings")
+                if (
+                    totals.get("critical", {}).get("max") != 0
+                    or totals.get("warning", {}).get("max") != 0
+                ):
+                    reasons.append("clean_not_strict_zero_critical_warning")
+            if side == "unknown":
+                reasons.append("unknown_expectation_side")
+            if reasons:
+                weak_cases.append(
+                    {
+                        "id": case["id"],
+                        "language": case.get("language", ""),
+                        "path": normalize_case_path(case["path"]),
+                        "reasons": reasons,
+                        "side": side,
+                    }
+                )
+        strength_scopes[scope] = {
+            "buggy_cases_with_required_substrings": sum(
+                1
+                for case in scoped_cases
+                if expectation_side(case) == "buggy"
+                and bool(case.get("expect", {}).get("require_substrings"))
+            ),
+            "case_count": len(scoped_cases),
+            "clean_cases_with_forbidden_substrings": sum(
+                1
+                for case in scoped_cases
+                if expectation_side(case) == "clean"
+                and bool(case.get("expect", {}).get("forbid_substrings"))
+            ),
+            "strict_zero_clean_cases": sum(
+                1
+                for case in scoped_cases
+                if expectation_side(case) == "clean"
+                and case.get("expect", {}).get("totals", {}).get("critical", {}).get("max") == 0
+                and case.get("expect", {}).get("totals", {}).get("warning", {}).get("max") == 0
+            ),
+            "weak_case_count": len(weak_cases),
+            "weak_cases": sorted(
+                weak_cases,
+                key=lambda item: (item["language"], item["id"]),
+            ),
+        }
+    return strength_scopes
 
 
 def update_or_check_golden(current: dict[str, Any], update: bool) -> None:
