@@ -369,7 +369,7 @@
             "max": 0
           },
           "warning": {
-            "max": 8
+            "max": 0
           }
         },
         "forbid_substrings": [
@@ -1374,7 +1374,7 @@
             "max": 0
           },
           "warning": {
-            "max": 2
+            "max": 0
           }
         },
         "forbid_substrings": [
@@ -1484,7 +1484,7 @@
             "max": 0
           },
           "warning": {
-            "max": 2
+            "max": 0
           }
         }
       }
@@ -5064,7 +5064,7 @@
             "max": 0
           },
           "warning": {
-            "max": 2
+            "max": 0
           }
         },
         "forbid_substrings": [

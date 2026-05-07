@@ -4,12 +4,19 @@ const { exec } = require('child_process');
 const DOMPurify = require('dompurify');
 const escapeHtml = require('escape-html');
 const shellescape = require('shell-escape');
+const { z } = require('zod');
 const db = require('./fake-db');
 
 const router = express.Router();
+const commentSchema = z.object({
+  text: z.string().max(5000).default(''),
+});
+
+router.use(express.json());
 
 router.post('/comment', (req, res) => {
-  const html = `<div class="comment">${DOMPurify.sanitize(req.body.text || '')}</div>`;
+  const { text } = commentSchema.parse(req.body);
+  const html = `<div class="comment">${DOMPurify.sanitize(text)}</div>`;
   res.send(html);
 });
 

@@ -1,6 +1,8 @@
 async function fetchUserProfile(id) {
   try {
-    const resp = await fetch(`/api/users/${id}`);
+    const resp = await fetch(`/api/users/${id}`, {
+      signal: AbortSignal.timeout(5000),
+    });
     return await resp.json();
   } catch (err) {
     console.error('Failed to load profile', err);
@@ -25,7 +27,9 @@ async function loadAllProjects(projectIds) {
   const projects = [];
   for (const id of projectIds) {
     try {
-      const resp = await fetch(`/api/projects/${id}`);
+      const resp = await fetch(`/api/projects/${id}`, {
+        signal: AbortSignal.timeout(5000),
+      });
       projects.push(resp);
     } catch (err) {
       console.error('Project load failure', err);
