@@ -15,16 +15,15 @@
     "all": {
       "buggy_cases_with_required_substrings": 56,
       "case_count": 112,
-      "clean_cases_with_forbidden_substrings": 48,
+      "clean_cases_with_forbidden_substrings": 56,
       "strict_zero_clean_cases": 54,
-      "weak_case_count": 8,
+      "weak_case_count": 2,
       "weak_cases": [
         {
           "id": "golang-taint-clean",
           "language": "golang",
           "path": "test-suite/golang/clean/taint_analysis.go",
           "reasons": [
-            "clean_missing_forbid_substrings",
             "clean_not_strict_zero_critical_warning"
           ],
           "side": "clean"
@@ -34,62 +33,7 @@
           "language": "js",
           "path": "test-suite/js/clean/taint_analysis.js",
           "reasons": [
-            "clean_missing_forbid_substrings",
             "clean_not_strict_zero_critical_warning"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "js-typescript-dangerously-set-html-clean",
-          "language": "js",
-          "path": "test-suite/js/security/dangerously-set-html-clean.tsx",
-          "reasons": [
-            "clean_missing_forbid_substrings"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "js-typescript-jsx-target-blank-noopener-clean",
-          "language": "js",
-          "path": "test-suite/js/security/target-blank-clean.tsx",
-          "reasons": [
-            "clean_missing_forbid_substrings"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "js-typescript-message-event-origin-clean",
-          "language": "js",
-          "path": "test-suite/js/security/message-event-origin-clean.ts",
-          "reasons": [
-            "clean_missing_forbid_substrings"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "js-typescript-post-message-wildcard-clean",
-          "language": "js",
-          "path": "test-suite/js/security/post-message-clean.ts",
-          "reasons": [
-            "clean_missing_forbid_substrings"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "js-typescript-window-open-noopener-clean",
-          "language": "js",
-          "path": "test-suite/js/security/window-open-clean.ts",
-          "reasons": [
-            "clean_missing_forbid_substrings"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "rust-security-shell-command-clean",
-          "language": "rust",
-          "path": "test-suite/rust/clean/security_injection.rs",
-          "reasons": [
-            "clean_missing_forbid_substrings"
           ],
           "side": "clean"
         }
@@ -98,16 +42,15 @@
     "campaign": {
       "buggy_cases_with_required_substrings": 86,
       "case_count": 173,
-      "clean_cases_with_forbidden_substrings": 67,
-      "strict_zero_clean_cases": 74,
-      "weak_case_count": 21,
+      "clean_cases_with_forbidden_substrings": 78,
+      "strict_zero_clean_cases": 77,
+      "weak_case_count": 12,
       "weak_cases": [
         {
           "id": "golang-taint-clean",
           "language": "golang",
           "path": "test-suite/golang/clean/taint_analysis.go",
           "reasons": [
-            "clean_missing_forbid_substrings",
             "clean_not_strict_zero_critical_warning"
           ],
           "side": "clean"
@@ -122,87 +65,11 @@
           "side": "clean"
         },
         {
-          "id": "js-react-hooks-clean",
-          "language": "js",
-          "path": "test-suite/js/clean/react_hooks.js",
-          "reasons": [
-            "clean_missing_forbid_substrings",
-            "clean_not_strict_zero_critical_warning"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "js-resource-lifecycle-clean",
-          "language": "js",
-          "path": "test-suite/js/clean/resource-lifecycle.js",
-          "reasons": [
-            "clean_missing_forbid_substrings",
-            "clean_not_strict_zero_critical_warning"
-          ],
-          "side": "clean"
-        },
-        {
           "id": "js-taint-clean",
           "language": "js",
           "path": "test-suite/js/clean/taint_analysis.js",
           "reasons": [
-            "clean_missing_forbid_substrings",
             "clean_not_strict_zero_critical_warning"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "js-typescript-dangerously-set-html-clean",
-          "language": "js",
-          "path": "test-suite/js/security/dangerously-set-html-clean.tsx",
-          "reasons": [
-            "clean_missing_forbid_substrings"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "js-typescript-jsx-target-blank-noopener-clean",
-          "language": "js",
-          "path": "test-suite/js/security/target-blank-clean.tsx",
-          "reasons": [
-            "clean_missing_forbid_substrings"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "js-typescript-message-event-origin-clean",
-          "language": "js",
-          "path": "test-suite/js/security/message-event-origin-clean.ts",
-          "reasons": [
-            "clean_missing_forbid_substrings"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "js-typescript-object-url-lifecycle-clean",
-          "language": "js",
-          "path": "test-suite/js/resource_lifecycle/object-url-clean.ts",
-          "reasons": [
-            "clean_missing_forbid_substrings",
-            "clean_not_strict_zero_critical_warning"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "js-typescript-post-message-wildcard-clean",
-          "language": "js",
-          "path": "test-suite/js/security/post-message-clean.ts",
-          "reasons": [
-            "clean_missing_forbid_substrings"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "js-typescript-window-open-noopener-clean",
-          "language": "js",
-          "path": "test-suite/js/security/window-open-clean.ts",
-          "reasons": [
-            "clean_missing_forbid_substrings"
           ],
           "side": "clean"
         },
@@ -265,15 +132,6 @@
           "side": "buggy"
         },
         {
-          "id": "rust-security-shell-command-clean",
-          "language": "rust",
-          "path": "test-suite/rust/clean/security_injection.rs",
-          "reasons": [
-            "clean_missing_forbid_substrings"
-          ],
-          "side": "clean"
-        },
-        {
           "id": "rust-string-allocation-mentions-clean",
           "language": "rust",
           "path": "test-suite/rust/clean/string_allocation_mentions.rs",
@@ -334,7 +192,7 @@
     },
     "golang": {
       "buggy_cases_with_required_substrings": 16,
-      "clean_cases_with_forbidden_substrings": 15,
+      "clean_cases_with_forbidden_substrings": 16,
       "security_pairs": 16,
       "strict_zero_clean_cases": 15
     },
@@ -346,7 +204,7 @@
     },
     "js": {
       "buggy_cases_with_required_substrings": 25,
-      "clean_cases_with_forbidden_substrings": 19,
+      "clean_cases_with_forbidden_substrings": 25,
       "security_pairs": 25,
       "strict_zero_clean_cases": 24
     },
@@ -364,7 +222,7 @@
     },
     "rust": {
       "buggy_cases_with_required_substrings": 15,
-      "clean_cases_with_forbidden_substrings": 14,
+      "clean_cases_with_forbidden_substrings": 15,
       "security_pairs": 15,
       "strict_zero_clean_cases": 15
     },
@@ -1283,7 +1141,7 @@
       "buggy_path": "test-suite/golang/buggy/taint_analysis.go",
       "buggy_require_count": 2,
       "clean_case": "golang-taint-clean",
-      "clean_forbid_count": 0,
+      "clean_forbid_count": 3,
       "clean_max_critical": 0,
       "clean_max_warning": 2,
       "clean_path": "test-suite/golang/clean/taint_analysis.go",
@@ -1563,7 +1421,7 @@
       "buggy_path": "test-suite/js/security/dangerously-set-html-buggy.tsx",
       "buggy_require_count": 1,
       "clean_case": "js-typescript-dangerously-set-html-clean",
-      "clean_forbid_count": 0,
+      "clean_forbid_count": 1,
       "clean_max_critical": 0,
       "clean_max_warning": 0,
       "clean_path": "test-suite/js/security/dangerously-set-html-clean.tsx",
@@ -1633,7 +1491,7 @@
       "buggy_path": "test-suite/js/security/message-event-origin-buggy.ts",
       "buggy_require_count": 1,
       "clean_case": "js-typescript-message-event-origin-clean",
-      "clean_forbid_count": 0,
+      "clean_forbid_count": 1,
       "clean_max_critical": 0,
       "clean_max_warning": 0,
       "clean_path": "test-suite/js/security/message-event-origin-clean.ts",
@@ -1689,7 +1547,7 @@
       "buggy_path": "test-suite/js/security/post-message-buggy.ts",
       "buggy_require_count": 1,
       "clean_case": "js-typescript-post-message-wildcard-clean",
-      "clean_forbid_count": 0,
+      "clean_forbid_count": 1,
       "clean_max_critical": 0,
       "clean_max_warning": 0,
       "clean_path": "test-suite/js/security/post-message-clean.ts",
@@ -1801,7 +1659,7 @@
       "buggy_path": "test-suite/js/buggy/taint_analysis.js",
       "buggy_require_count": 4,
       "clean_case": "js-taint-clean",
-      "clean_forbid_count": 0,
+      "clean_forbid_count": 3,
       "clean_max_critical": 0,
       "clean_max_warning": 2,
       "clean_path": "test-suite/js/clean/taint_analysis.js",
@@ -1815,7 +1673,7 @@
       "buggy_path": "test-suite/js/security/target-blank-buggy.tsx",
       "buggy_require_count": 1,
       "clean_case": "js-typescript-jsx-target-blank-noopener-clean",
-      "clean_forbid_count": 0,
+      "clean_forbid_count": 1,
       "clean_max_critical": 0,
       "clean_max_warning": 0,
       "clean_path": "test-suite/js/security/target-blank-clean.tsx",
@@ -1843,7 +1701,7 @@
       "buggy_path": "test-suite/js/security/window-open-buggy.ts",
       "buggy_require_count": 1,
       "clean_case": "js-typescript-window-open-noopener-clean",
-      "clean_forbid_count": 0,
+      "clean_forbid_count": 1,
       "clean_max_critical": 0,
       "clean_max_warning": 0,
       "clean_path": "test-suite/js/security/window-open-clean.ts",
@@ -2571,7 +2429,7 @@
       "buggy_path": "test-suite/rust/buggy/security_injection.rs",
       "buggy_require_count": 4,
       "clean_case": "rust-security-shell-command-clean",
-      "clean_forbid_count": 0,
+      "clean_forbid_count": 2,
       "clean_max_critical": 0,
       "clean_max_warning": 0,
       "clean_path": "test-suite/rust/clean/security_injection.rs",

@@ -1310,10 +1310,17 @@
       "expect": {
         "exit_code": "zero",
         "totals": {
+          "critical": {
+            "max": 0
+          },
           "warning": {
             "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "React hook dependency array missing props/context",
+          "React hook dependency array missing local state/refs"
+        ]
       }
     },
     {
@@ -1369,7 +1376,12 @@
           "warning": {
             "max": 2
           }
-        }
+        },
+        "forbid_substrings": [
+          "Unsanitized data flows to HTML response sinks",
+          "User input reaches SQL query builders without sanitization",
+          "User input reaches command execution APIs"
+        ]
       }
     },
     {
@@ -3530,7 +3542,10 @@
           "warning": {
             "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "Pass 'noopener,noreferrer' to prevent reverse-tabnabbing via window.opener"
+        ]
       }
     },
     {
@@ -3588,7 +3603,10 @@
           "warning": {
             "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "Add rel=\"noopener noreferrer\" to prevent reverse-tabnabbing"
+        ]
       }
     },
     {
@@ -3646,7 +3664,10 @@
           "warning": {
             "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "Sanitize HTML with DOMPurify.sanitize() or sanitizeHtml() before rendering"
+        ]
       }
     },
     {
@@ -4382,7 +4403,10 @@
           "warning": {
             "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "Pass a specific trusted origin instead of '*' to avoid cross-origin data leaks"
+        ]
       }
     },
     {
@@ -4438,7 +4462,10 @@
           "warning": {
             "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "Validate event.origin against a trusted allowlist before using event.data"
+        ]
       }
     },
     {
@@ -5039,7 +5066,12 @@
           "warning": {
             "max": 2
           }
-        }
+        },
+        "forbid_substrings": [
+          "User input concatenated into SQL execution/query-builder strings",
+          "User input flows into fmt.Fprintf/template Execute/ResponseWriter.Write",
+          "User input reaches exec.Command/CommandContext"
+        ]
       }
     },
     {
@@ -6144,10 +6176,17 @@
       "expect": {
         "exit_code": "zero",
         "totals": {
+          "critical": {
+            "max": 0
+          },
           "warning": {
             "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "Object URLs created without URL.revokeObjectURL",
+          "addEventListener without matching removeEventListener"
+        ]
       }
     },
     {
@@ -6197,10 +6236,16 @@
       "expect": {
         "exit_code": "zero",
         "totals": {
+          "critical": {
+            "max": 0
+          },
           "warning": {
             "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "Object URLs created without URL.revokeObjectURL"
+        ]
       }
     },
     {
@@ -7280,7 +7325,11 @@
           "warning": {
             "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "Avoid shell interpreters; pass argv directly or strictly validate/allowlist input",
+          "Command executable from untrusted-looking value"
+        ]
       }
     },
     {
