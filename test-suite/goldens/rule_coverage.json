@@ -19,10 +19,10 @@
       "strict_zero_clean_cases": 8
     },
     "golang": {
-      "buggy_cases_with_required_substrings": 15,
-      "clean_cases_with_forbidden_substrings": 14,
-      "security_pairs": 15,
-      "strict_zero_clean_cases": 14
+      "buggy_cases_with_required_substrings": 16,
+      "clean_cases_with_forbidden_substrings": 15,
+      "security_pairs": 16,
+      "strict_zero_clean_cases": 15
     },
     "java": {
       "buggy_cases_with_required_substrings": 14,
@@ -49,10 +49,10 @@
       "strict_zero_clean_cases": 7
     },
     "rust": {
-      "buggy_cases_with_required_substrings": 14,
-      "clean_cases_with_forbidden_substrings": 13,
-      "security_pairs": 14,
-      "strict_zero_clean_cases": 14
+      "buggy_cases_with_required_substrings": 15,
+      "clean_cases_with_forbidden_substrings": 14,
+      "security_pairs": 15,
+      "strict_zero_clean_cases": 15
     },
     "swift": {
       "buggy_cases_with_required_substrings": 7,
@@ -551,6 +551,20 @@
       "clean_path": "test-suite/golang/clean/taint_analysis.go",
       "language": "golang",
       "slug": "taint"
+    },
+    {
+      "buggy_case": "golang-tls-verification-buggy",
+      "buggy_min_critical": 0,
+      "buggy_min_warning": 1,
+      "buggy_path": "test-suite/golang/security/tls_verification_buggy.go",
+      "buggy_require_count": 1,
+      "clean_case": "golang-tls-verification-clean",
+      "clean_forbid_count": 1,
+      "clean_max_critical": 0,
+      "clean_max_warning": 0,
+      "clean_path": "test-suite/golang/security/tls_verification_clean.go",
+      "language": "golang",
+      "slug": "tls_verification"
     },
     {
       "buggy_case": "java-archive-extraction-buggy",
@@ -1869,6 +1883,20 @@
       "slug": "temp-file-race"
     },
     {
+      "buggy_case": "rust-tls-verification-buggy",
+      "buggy_min_critical": 1,
+      "buggy_min_warning": 0,
+      "buggy_path": "test-suite/rust/buggy/tls_verification.rs",
+      "buggy_require_count": 1,
+      "clean_case": "rust-tls-verification-clean",
+      "clean_forbid_count": 1,
+      "clean_max_critical": 0,
+      "clean_max_warning": 0,
+      "clean_path": "test-suite/rust/clean/tls_verification.rs",
+      "language": "rust",
+      "slug": "tls-verification"
+    },
+    {
       "buggy_case": "swift-archive-extraction-buggy",
       "buggy_min_critical": 1,
       "buggy_min_warning": 0,
@@ -2088,6 +2116,8 @@
       "golang-ssrf-clean",
       "golang-taint-buggy",
       "golang-taint-clean",
+      "golang-tls-verification-buggy",
+      "golang-tls-verification-clean",
       "java-archive-extraction-buggy",
       "java-archive-extraction-clean",
       "java-header-injection-buggy",
@@ -2276,6 +2306,8 @@
       "rust-ssrf-clean",
       "rust-temp-file-race-buggy",
       "rust-temp-file-race-clean",
+      "rust-tls-verification-buggy",
+      "rust-tls-verification-clean",
       "swift-archive-extraction-buggy",
       "swift-archive-extraction-clean",
       "swift-header-injection-buggy",
@@ -2362,6 +2394,8 @@
       "golang-ssrf-clean",
       "golang-taint-buggy",
       "golang-taint-clean",
+      "golang-tls-verification-buggy",
+      "golang-tls-verification-clean",
       "java-archive-extraction-buggy",
       "java-archive-extraction-clean",
       "java-header-injection-buggy",
@@ -2550,6 +2584,8 @@
       "rust-ssrf-clean",
       "rust-temp-file-race-buggy",
       "rust-temp-file-race-clean",
+      "rust-tls-verification-buggy",
+      "rust-tls-verification-clean",
       "swift-archive-extraction-buggy",
       "swift-archive-extraction-clean",
       "swift-header-injection-buggy",

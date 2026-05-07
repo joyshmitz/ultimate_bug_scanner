@@ -25,3 +25,9 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 export const testEnv = {
   NODE_TLS_REJECT_UNAUTHORIZED: "0",
 };
+
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = 0 as any;
+
+export const numericTestEnv = {
+  NODE_TLS_REJECT_UNAUTHORIZED: 0,
+};

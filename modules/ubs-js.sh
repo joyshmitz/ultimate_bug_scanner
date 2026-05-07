@@ -8245,8 +8245,8 @@ candidate_re = re.compile(r'\b(?:rejectUnauthorized|NODE_TLS_REJECT_UNAUTHORIZED
 reject_unauthorized_false_re = re.compile(r'\brejectUnauthorized\s*:\s*false\b')
 env_tls_zero_re = re.compile(
     r'(?:'
-    r'\bNODE_TLS_REJECT_UNAUTHORIZED\b\s*[:=]\s*[\'"`]0[\'"`]|'
-    r'[\'"`]NODE_TLS_REJECT_UNAUTHORIZED[\'"`]\s*:\s*[\'"`]0[\'"`]'
+    r'\bNODE_TLS_REJECT_UNAUTHORIZED\b\s*[:=]\s*(?:[\'"`]0[\'"`]|0\b)|'
+    r'[\'"`]NODE_TLS_REJECT_UNAUTHORIZED[\'"`]\s*:\s*(?:[\'"`]0[\'"`]|0\b)'
     r')'
 )
 

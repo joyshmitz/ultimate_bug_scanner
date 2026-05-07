@@ -6427,9 +6427,11 @@ YAML
 id: rust.reqwest-danger-accept
 language: rust
 rule:
-  pattern: reqwest::ClientBuilder::new().danger_accept_invalid_certs(true)
+  any:
+    - pattern: reqwest::ClientBuilder::new().danger_accept_invalid_certs(true)
+    - pattern: reqwest::ClientBuilder::new().danger_accept_invalid_hostnames(true)
 severity: warning
-message: "reqwest builder accepts invalid certs; avoid in production"
+message: "reqwest builder disables TLS certificate or hostname verification; avoid in production"
 YAML
 
   cat >"$AST_RULE_DIR/openssl-no-verify.yml" <<'YAML'
@@ -6447,9 +6449,11 @@ YAML
 id: rust.native-tls-danger
 language: rust
 rule:
-  pattern: native_tls::TlsConnector::builder().danger_accept_invalid_certs(true)
+  any:
+    - pattern: native_tls::TlsConnector::builder().danger_accept_invalid_certs(true)
+    - pattern: native_tls::TlsConnector::builder().danger_accept_invalid_hostnames(true)
 severity: warning
-message: "native-tls builder accepts invalid certs; disable for production"
+message: "native-tls builder disables TLS certificate or hostname verification; avoid in production"
 YAML
 
   cat >"$AST_RULE_DIR/md5-sha1.yml" <<'YAML'
@@ -7451,10 +7455,12 @@ if [ "$weak_hash" -gt 0 ]; then print_finding "warning" "$weak_hash" "Weak hash 
 
 print_subheader "TLS verification disabled"
 tls_insecure=$(( $(ast_search 'reqwest::ClientBuilder::new().danger_accept_invalid_certs(true)' || echo 0) \
+  + $(ast_search 'reqwest::ClientBuilder::new().danger_accept_invalid_hostnames(true)' || echo 0) \
   + $("${GREP_RN[@]}" -e "danger_accept_invalid_certs\(\s*true\s*\)" "$PROJECT_DIR" 2>/dev/null | count_lines || true) \
+  + $("${GREP_RN[@]}" -e "danger_accept_invalid_hostnames\(\s*true\s*\)" "$PROJECT_DIR" 2>/dev/null | count_lines || true) \
   + $("${GREP_RN[@]}" -e "SslVerifyMode::NONE" "$PROJECT_DIR" 2>/dev/null | count_lines || true) \
   + $("${GREP_RN[@]}" -e "TlsConnector::builder\(\)\\.danger_accept_invalid_certs\(true\)" "$PROJECT_DIR" 2>/dev/null | count_lines || true) ))
-if [ "$tls_insecure" -gt 0 ]; then print_finding "critical" "$tls_insecure" "TLS verification disabled"; add_finding "critical" "$tls_insecure" "TLS verification disabled" "" "${CATEGORY_NAME[8]}"; fi
+if [ "$tls_insecure" -gt 0 ]; then print_finding "critical" "$tls_insecure" "TLS certificate or hostname verification disabled"; add_finding "critical" "$tls_insecure" "TLS certificate or hostname verification disabled" "" "${CATEGORY_NAME[8]}"; fi
 
 print_subheader "Security-sensitive non-crypto randomness"
 security_randomness_hits=$(count_security_randomness_matches || echo 0)
