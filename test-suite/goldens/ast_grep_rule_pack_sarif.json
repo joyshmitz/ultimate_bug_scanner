@@ -52,21 +52,91 @@
       "driver_rule_count": 0,
       "driver_rule_ids": [],
       "expected_rule_ids": [
-        "rust.unwrap-call"
+        "rust.unwrap-call",
+        "rust.unwrap-unchecked"
       ],
-      "fixture": "test-suite/rust/buggy/buggy_unwrap.rs",
+      "fixture": "test-suite/rust/buggy/ast_grep_rule_pack_coverage.rs",
       "label": "rust-rule-pack",
       "module": "ubs-rust.sh",
-      "result_count": 13,
+      "result_count": 143,
       "result_rule_ids": [
+        "rust.arc-mutex",
+        "rust.assert-macros",
+        "rust.async.std-guard-across-await",
+        "rust.async.std-lock-in-async",
+        "rust.async.tokio-guard-across-await",
+        "rust.await-in-for",
+        "rust.block-on-in-async",
+        "rust.blocking-fs-in-async",
+        "rust.chars-nth",
         "rust.clone-call",
+        "rust.clone-in-loop",
+        "rust.collect-then-for",
+        "rust.command.shell-c",
+        "rust.cstr-from-bytes-unchecked",
+        "rust.dbg-macro",
+        "rust.debug-assert-macros",
+        "rust.env-var-unwrap",
+        "rust.eprintln-macro",
+        "rust.expect-call",
         "rust.fixme-comment",
+        "rust.format-literal-no-vars",
+        "rust.from-slice-panic",
+        "rust.from-utf8-unchecked",
+        "rust.get-unchecked",
+        "rust.i64-negate-overflow",
+        "rust.insecure-hash",
+        "rust.instant-now-elapsed",
+        "rust.instant-subtraction",
+        "rust.iter-nth-zero",
+        "rust.len-count-narrow-as",
+        "rust.map-clone",
+        "rust.maybeuninit-assume-init",
+        "rust.mem-forget",
         "rust.mem-transmute",
+        "rust.mem-uninitialized",
+        "rust.mem-zeroed",
+        "rust.mutex-lock-expect",
         "rust.mutex-lock-unwrap",
+        "rust.native-tls-danger",
+        "rust.openssl-no-verify",
+        "rust.panic-in-drop",
+        "rust.panic-macro",
+        "rust.parse-float-no-finite-check",
+        "rust.parse-unwrap",
+        "rust.plain-http-url",
+        "rust.println-macro",
+        "rust.ptr-cast",
+        "rust.rc-refcell",
+        "rust.regex-new-in-loop",
+        "rust.regex-new-unwrap",
+        "rust.reqwest-danger-accept",
+        "rust.resource.thread-no-join",
+        "rust.resource.tokio-task-no-await",
+        "rust.serde-json-unwrap",
+        "rust.slice-from-raw-parts",
+        "rust.strict-utf8",
+        "rust.suspicious-as-cast",
+        "rust.thread-sleep-in-async",
+        "rust.thread-spawn-in-async",
         "rust.thread-spawn-no-join",
+        "rust.to-owned-to-string",
         "rust.todo-comment",
+        "rust.todo-macro",
+        "rust.tokio-block-in-place",
+        "rust.tokio-spawn-no-handle",
+        "rust.tokio.spawn-no-move",
+        "rust.try-into-unwrap",
+        "rust.unimplemented-macro",
+        "rust.unreachable-macro",
+        "rust.unreachable-unchecked",
+        "rust.unsafe-auto-traits",
         "rust.unsafe-block",
-        "rust.unwrap-call"
+        "rust.unwrap-call",
+        "rust.unwrap-in-drop",
+        "rust.unwrap-unchecked",
+        "rust.wrapping-arithmetic",
+        "rust.write-not-atomic"
       ],
       "sarif_runs": 1
     }
@@ -216,46 +286,90 @@
       "driver_rule_count": 0,
       "driver_rule_ids": [],
       "expected_rule_ids": [
-        "rust.unwrap-call"
+        "rust.unwrap-call",
+        "rust.unwrap-unchecked"
       ],
       "fixture": "test-suite/rust",
       "label": "rust-rule-pack",
       "module": "ubs-rust.sh",
-      "result_count": 148,
+      "result_count": 326,
       "result_rule_ids": [
         "rust.arc-mutex",
+        "rust.assert-macros",
+        "rust.async.std-guard-across-await",
+        "rust.async.std-lock-in-async",
+        "rust.async.tokio-guard-across-await",
+        "rust.await-in-for",
+        "rust.block-on-in-async",
+        "rust.blocking-fs-in-async",
         "rust.chars-nth",
         "rust.clone-call",
+        "rust.clone-in-loop",
+        "rust.collect-then-for",
         "rust.command.shell-c",
         "rust.cstr-from-bytes-unchecked",
+        "rust.dbg-macro",
+        "rust.debug-assert-macros",
         "rust.env-var-unwrap",
+        "rust.eprintln-macro",
         "rust.expect-call",
         "rust.fixme-comment",
         "rust.format-literal-no-vars",
+        "rust.from-slice-panic",
         "rust.from-utf8-unchecked",
         "rust.get-unchecked",
+        "rust.i64-negate-overflow",
+        "rust.insecure-hash",
+        "rust.instant-now-elapsed",
+        "rust.instant-subtraction",
         "rust.iter-nth-zero",
         "rust.len-count-narrow-as",
+        "rust.map-clone",
         "rust.maybeuninit-assume-init",
+        "rust.mem-forget",
         "rust.mem-transmute",
+        "rust.mem-uninitialized",
         "rust.mem-zeroed",
         "rust.mutex-lock-expect",
         "rust.mutex-lock-unwrap",
+        "rust.native-tls-danger",
         "rust.openssl-no-verify",
+        "rust.panic-in-drop",
+        "rust.panic-macro",
+        "rust.parse-float-no-finite-check",
         "rust.parse-unwrap",
+        "rust.plain-http-url",
+        "rust.println-macro",
+        "rust.ptr-cast",
+        "rust.rc-refcell",
+        "rust.regex-new-in-loop",
+        "rust.regex-new-unwrap",
+        "rust.reqwest-danger-accept",
         "rust.resource.thread-no-join",
         "rust.resource.tokio-task-no-await",
         "rust.serde-json-unwrap",
         "rust.slice-from-raw-parts",
+        "rust.strict-utf8",
         "rust.suspicious-as-cast",
+        "rust.thread-sleep-in-async",
+        "rust.thread-spawn-in-async",
         "rust.thread-spawn-no-join",
         "rust.to-owned-to-string",
         "rust.todo-comment",
+        "rust.todo-macro",
+        "rust.tokio-block-in-place",
+        "rust.tokio-spawn-no-handle",
+        "rust.tokio.spawn-no-move",
         "rust.try-into-unwrap",
+        "rust.unimplemented-macro",
+        "rust.unreachable-macro",
         "rust.unreachable-unchecked",
         "rust.unsafe-auto-traits",
         "rust.unsafe-block",
         "rust.unwrap-call",
+        "rust.unwrap-in-drop",
+        "rust.unwrap-unchecked",
+        "rust.wrapping-arithmetic",
         "rust.write-not-atomic"
       ],
       "sarif_runs": 1
@@ -895,7 +1009,7 @@
         "--no-cargo",
         "--dump-rules={rules_dir}"
       ],
-      "fixture": "test-suite/rust/buggy/buggy_unwrap.rs",
+      "fixture": "test-suite/rust/buggy/ast_grep_rule_pack_coverage.rs",
       "label": "rust-rule-pack",
       "module": "ubs-rust.sh",
       "rule_count": 77,
@@ -904,97 +1018,97 @@
           "file": "arc-mutex.yml",
           "id": "rust.arc-mutex",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "assert-macros.yml",
           "id": "rust.assert-macros",
           "language": "rust",
-          "match_count": 0
+          "match_count": 3
         },
         {
           "file": "await-in-for.yml",
           "id": "rust.await-in-for",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "block-on-in-async.yml",
           "id": "rust.block-on-in-async",
           "language": "rust",
-          "match_count": 0
+          "match_count": 2
         },
         {
           "file": "casts-as.yml",
           "id": "rust.suspicious-as-cast",
           "language": "rust",
-          "match_count": 0
+          "match_count": 8
         },
         {
           "file": "chars-nth.yml",
           "id": "rust.chars-nth",
           "language": "rust",
-          "match_count": 0
+          "match_count": 3
         },
         {
           "file": "clone-any.yml",
           "id": "rust.clone-call",
           "language": "rust",
-          "match_count": 1
+          "match_count": 3
         },
         {
           "file": "clone-in-loop.yml",
           "id": "rust.clone-in-loop",
           "language": "rust",
-          "match_count": 0
+          "match_count": 2
         },
         {
           "file": "collect-vec-for.yml",
           "id": "rust.collect-then-for",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "command-shell-c.yml",
           "id": "rust.command.shell-c",
           "language": "rust",
-          "match_count": 0
+          "match_count": 2
         },
         {
           "file": "cstr-unchecked.yml",
           "id": "rust.cstr-from-bytes-unchecked",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "dbg.yml",
           "id": "rust.dbg-macro",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "debug-assert-macros.yml",
           "id": "rust.debug-assert-macros",
           "language": "rust",
-          "match_count": 0
+          "match_count": 3
         },
         {
           "file": "env-var-unwrap.yml",
           "id": "rust.env-var-unwrap",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "eprintln.yml",
           "id": "rust.eprintln-macro",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "expect.yml",
           "id": "rust.expect-call",
           "language": "rust",
-          "match_count": 0
+          "match_count": 3
         },
         {
           "file": "fixme-comment.yml",
@@ -1006,67 +1120,67 @@
           "file": "forget.yml",
           "id": "rust.mem-forget",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "format-literal.yml",
           "id": "rust.format-literal-no-vars",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "from-slice-panic.yml",
           "id": "rust.from-slice-panic",
           "language": "rust",
-          "match_count": 0
+          "match_count": 3
         },
         {
           "file": "fs-in-async.yml",
           "id": "rust.blocking-fs-in-async",
           "language": "rust",
-          "match_count": 0
+          "match_count": 2
         },
         {
           "file": "get-unchecked.yml",
           "id": "rust.get-unchecked",
           "language": "rust",
-          "match_count": 0
+          "match_count": 2
         },
         {
           "file": "http-url.yml",
           "id": "rust.plain-http-url",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "i64-negate-overflow.yml",
           "id": "rust.i64-negate-overflow",
           "language": "rust",
-          "match_count": 0
+          "match_count": 2
         },
         {
           "file": "instant-now-elapsed.yml",
           "id": "rust.instant-now-elapsed",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "instant-subtraction-panic.yml",
           "id": "rust.instant-subtraction",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "len-count-narrow-as.yml",
           "id": "rust.len-count-narrow-as",
           "language": "rust",
-          "match_count": 0
+          "match_count": 2
         },
         {
           "file": "lock-expect.yml",
           "id": "rust.mutex-lock-expect",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "lock-unwrap.yml",
@@ -1078,163 +1192,163 @@
           "file": "map-clone.yml",
           "id": "rust.map-clone",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "maybeuninit-assume-init.yml",
           "id": "rust.maybeuninit-assume-init",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "md5-sha1.yml",
           "id": "rust.insecure-hash",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "native-tls-danger.yml",
           "id": "rust.native-tls-danger",
           "language": "rust",
-          "match_count": 0
+          "match_count": 2
         },
         {
           "file": "nth-zero.yml",
           "id": "rust.iter-nth-zero",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "openssl-no-verify.yml",
           "id": "rust.openssl-no-verify",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "panic-in-drop.yml",
           "id": "rust.panic-in-drop",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "panic.yml",
           "id": "rust.panic-macro",
           "language": "rust",
-          "match_count": 0
+          "match_count": 2
         },
         {
           "file": "parse-float-no-finite-check.yml",
           "id": "rust.parse-float-no-finite-check",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "parse-unwrap.yml",
           "id": "rust.parse-unwrap",
           "language": "rust",
-          "match_count": 0
+          "match_count": 2
         },
         {
           "file": "println.yml",
           "id": "rust.println-macro",
           "language": "rust",
-          "match_count": 0
+          "match_count": 4
         },
         {
           "file": "ptr-cast.yml",
           "id": "rust.ptr-cast",
           "language": "rust",
-          "match_count": 0
+          "match_count": 3
         },
         {
           "file": "raw-parts.yml",
           "id": "rust.slice-from-raw-parts",
           "language": "rust",
-          "match_count": 0
+          "match_count": 2
         },
         {
           "file": "rc-refcell.yml",
           "id": "rust.rc-refcell",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "regex-new-in-loop.yml",
           "id": "rust.regex-new-in-loop",
           "language": "rust",
-          "match_count": 0
+          "match_count": 2
         },
         {
           "file": "regex-new-unwrap.yml",
           "id": "rust.regex-new-unwrap",
           "language": "rust",
-          "match_count": 0
+          "match_count": 2
         },
         {
           "file": "reqwest-insecure.yml",
           "id": "rust.reqwest-danger-accept",
           "language": "rust",
-          "match_count": 0
+          "match_count": 2
         },
         {
           "file": "rust.resource-thread.yml",
           "id": "rust.resource.thread-no-join",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "rust.resource-tokio-task.yml",
           "id": "rust.resource.tokio-task-no-await",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "serde-json-unwrap.yml",
           "id": "rust.serde-json-unwrap",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "sleep-in-async.yml",
           "id": "rust.thread-sleep-in-async",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "spawn-no-join.yml",
           "id": "rust.thread-spawn-no-join",
           "language": "rust",
-          "match_count": 1
+          "match_count": 2
         },
         {
           "file": "std-guard-across-await.yml",
           "id": "rust.async.std-guard-across-await",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "std-lock-in-async.yml",
           "id": "rust.async.std-lock-in-async",
           "language": "rust",
-          "match_count": 0
+          "match_count": 5
         },
         {
           "file": "strict-utf8.yml",
           "id": "rust.strict-utf8",
           "language": "rust",
-          "match_count": 0
+          "match_count": 2
         },
         {
           "file": "thread-spawn-in-async.yml",
           "id": "rust.thread-spawn-in-async",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "to-owned-to-string.yml",
           "id": "rust.to-owned-to-string",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "todo-comment.yml",
@@ -1246,31 +1360,31 @@
           "file": "todo.yml",
           "id": "rust.todo-macro",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "tokio-blocking.yml",
           "id": "rust.tokio-block-in-place",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "tokio-guard-across-await.yml",
           "id": "rust.async.tokio-guard-across-await",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "tokio-spawn-no-handle.yml",
           "id": "rust.tokio-spawn-no-handle",
           "language": "rust",
-          "match_count": 0
+          "match_count": 2
         },
         {
           "file": "tokio-spawn-no-move.yml",
           "id": "rust.tokio.spawn-no-move",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "transmute.yml",
@@ -1282,31 +1396,31 @@
           "file": "try-into-unwrap.yml",
           "id": "rust.try-into-unwrap",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "unimplemented.yml",
           "id": "rust.unimplemented-macro",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "uninitialized.yml",
           "id": "rust.mem-uninitialized",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "unreachable-unchecked.yml",
           "id": "rust.unreachable-unchecked",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "unreachable.yml",
           "id": "rust.unreachable-macro",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "unsafe-block.yml",
@@ -1318,49 +1432,49 @@
           "file": "unsafe-send-sync.yml",
           "id": "rust.unsafe-auto-traits",
           "language": "rust",
-          "match_count": 0
+          "match_count": 2
         },
         {
           "file": "unwrap-in-drop.yml",
           "id": "rust.unwrap-in-drop",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "unwrap-unchecked.yml",
           "id": "rust.unwrap-unchecked",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "unwrap.yml",
           "id": "rust.unwrap-call",
           "language": "rust",
-          "match_count": 2
+          "match_count": 14
         },
         {
           "file": "utf8-unchecked.yml",
           "id": "rust.from-utf8-unchecked",
           "language": "rust",
-          "match_count": 0
+          "match_count": 2
         },
         {
           "file": "wrapping-arithmetic.yml",
           "id": "rust.wrapping-arithmetic",
           "language": "rust",
-          "match_count": 0
+          "match_count": 3
         },
         {
           "file": "write-not-atomic.yml",
           "id": "rust.write-not-atomic",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         },
         {
           "file": "zeroed.yml",
           "id": "rust.mem-zeroed",
           "language": "rust",
-          "match_count": 0
+          "match_count": 1
         }
       ]
     }
@@ -1489,47 +1603,9 @@
     },
     {
       "corpus_result_rule_ids_without_generated_rule": [],
-      "covered_generated_rule_count": 34,
+      "covered_generated_rule_count": 77,
       "covered_generated_rule_ids": [
         "rust.arc-mutex",
-        "rust.chars-nth",
-        "rust.clone-call",
-        "rust.command.shell-c",
-        "rust.cstr-from-bytes-unchecked",
-        "rust.env-var-unwrap",
-        "rust.expect-call",
-        "rust.fixme-comment",
-        "rust.format-literal-no-vars",
-        "rust.from-utf8-unchecked",
-        "rust.get-unchecked",
-        "rust.iter-nth-zero",
-        "rust.len-count-narrow-as",
-        "rust.maybeuninit-assume-init",
-        "rust.mem-transmute",
-        "rust.mem-zeroed",
-        "rust.mutex-lock-expect",
-        "rust.mutex-lock-unwrap",
-        "rust.openssl-no-verify",
-        "rust.parse-unwrap",
-        "rust.resource.thread-no-join",
-        "rust.resource.tokio-task-no-await",
-        "rust.serde-json-unwrap",
-        "rust.slice-from-raw-parts",
-        "rust.suspicious-as-cast",
-        "rust.thread-spawn-no-join",
-        "rust.to-owned-to-string",
-        "rust.todo-comment",
-        "rust.try-into-unwrap",
-        "rust.unreachable-unchecked",
-        "rust.unsafe-auto-traits",
-        "rust.unsafe-block",
-        "rust.unwrap-call",
-        "rust.write-not-atomic"
-      ],
-      "generated_rule_count": 77,
-      "label": "rust-rule-pack",
-      "uncovered_generated_rule_count": 43,
-      "uncovered_generated_rule_ids": [
         "rust.assert-macros",
         "rust.async.std-guard-across-await",
         "rust.async.std-lock-in-async",
@@ -1537,23 +1613,42 @@
         "rust.await-in-for",
         "rust.block-on-in-async",
         "rust.blocking-fs-in-async",
+        "rust.chars-nth",
+        "rust.clone-call",
         "rust.clone-in-loop",
         "rust.collect-then-for",
+        "rust.command.shell-c",
+        "rust.cstr-from-bytes-unchecked",
         "rust.dbg-macro",
         "rust.debug-assert-macros",
+        "rust.env-var-unwrap",
         "rust.eprintln-macro",
+        "rust.expect-call",
+        "rust.fixme-comment",
+        "rust.format-literal-no-vars",
         "rust.from-slice-panic",
+        "rust.from-utf8-unchecked",
+        "rust.get-unchecked",
         "rust.i64-negate-overflow",
         "rust.insecure-hash",
         "rust.instant-now-elapsed",
         "rust.instant-subtraction",
+        "rust.iter-nth-zero",
+        "rust.len-count-narrow-as",
         "rust.map-clone",
+        "rust.maybeuninit-assume-init",
         "rust.mem-forget",
+        "rust.mem-transmute",
         "rust.mem-uninitialized",
+        "rust.mem-zeroed",
+        "rust.mutex-lock-expect",
+        "rust.mutex-lock-unwrap",
         "rust.native-tls-danger",
+        "rust.openssl-no-verify",
         "rust.panic-in-drop",
         "rust.panic-macro",
         "rust.parse-float-no-finite-check",
+        "rust.parse-unwrap",
         "rust.plain-http-url",
         "rust.println-macro",
         "rust.ptr-cast",
@@ -1561,19 +1656,37 @@
         "rust.regex-new-in-loop",
         "rust.regex-new-unwrap",
         "rust.reqwest-danger-accept",
+        "rust.resource.thread-no-join",
+        "rust.resource.tokio-task-no-await",
+        "rust.serde-json-unwrap",
+        "rust.slice-from-raw-parts",
         "rust.strict-utf8",
+        "rust.suspicious-as-cast",
         "rust.thread-sleep-in-async",
         "rust.thread-spawn-in-async",
+        "rust.thread-spawn-no-join",
+        "rust.to-owned-to-string",
+        "rust.todo-comment",
         "rust.todo-macro",
         "rust.tokio-block-in-place",
         "rust.tokio-spawn-no-handle",
         "rust.tokio.spawn-no-move",
+        "rust.try-into-unwrap",
         "rust.unimplemented-macro",
         "rust.unreachable-macro",
+        "rust.unreachable-unchecked",
+        "rust.unsafe-auto-traits",
+        "rust.unsafe-block",
+        "rust.unwrap-call",
         "rust.unwrap-in-drop",
         "rust.unwrap-unchecked",
-        "rust.wrapping-arithmetic"
-      ]
+        "rust.wrapping-arithmetic",
+        "rust.write-not-atomic"
+      ],
+      "generated_rule_count": 77,
+      "label": "rust-rule-pack",
+      "uncovered_generated_rule_count": 0,
+      "uncovered_generated_rule_ids": []
     }
   ],
   "scope": "Rust, TypeScript/JavaScript, and Go ast-grep SARIF evidence, corpus evidence, and per-rule parser validation",

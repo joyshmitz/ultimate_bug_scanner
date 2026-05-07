@@ -152,7 +152,7 @@ The script runs UBS twice against the Python buggy fixtures, verifies that the r
 - Rust, TypeScript/JavaScript, and Go ast-grep rule packs all emit valid SARIF through the real module CLIs.
 - The canonical Rust/TypeScript/Go SARIF evidence in `test-suite/goldens/ast_grep_rule_pack_sarif.json` still matches the focused fixture outputs, broader language-corpus outputs, emitted rule IDs, result counts, driver rule list shape, and per-rule ast-grep YAML inventory.
 - Every generated Rust, TypeScript/JavaScript, and Go ast-grep YAML rule parses when run directly through `ast-grep scan --rule` against its language fixture.
-- The golden records which generated ast-grep rule IDs are actually covered by the broader Rust/TypeScript/Go fixture corpora, making unexercised rules visible as reviewable test debt.
+- The golden records which generated ast-grep rule IDs are actually covered by the broader Rust/TypeScript/Go fixture corpora. The intended steady state is zero uncovered generated rules; any uncovered-rule diff is reviewable test debt.
 - Curated request-body and route-param taint fixtures remain stable under benign comment/whitespace transforms.
 - Clean request-body, SQL, redirect, and SSRF fixtures stay clean across deterministic fuzz variants, with a per-case timeout so scanner hangs fail quickly.
 

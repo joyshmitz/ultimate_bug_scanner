@@ -492,9 +492,9 @@ AST_GREP_SARIF_CHECKS = (
         "module": "ubs-rust.sh",
         "args": ("--no-cargo", "--format=sarif"),
         "dump_args": ("--no-cargo", "--dump-rules={rules_dir}"),
-        "fixture": "test-suite/rust/buggy/buggy_unwrap.rs",
+        "fixture": "test-suite/rust/buggy/ast_grep_rule_pack_coverage.rs",
         "corpus_fixture": "test-suite/rust",
-        "expected_rule_ids": ("rust.unwrap-call",),
+        "expected_rule_ids": ("rust.unwrap-call", "rust.unwrap-unchecked"),
     },
 )
 

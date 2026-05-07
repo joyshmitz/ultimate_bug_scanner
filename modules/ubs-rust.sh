@@ -6012,7 +6012,7 @@ YAML
 id: rust.panic-macro
 language: rust
 rule:
-  pattern: panic!($$)
+  pattern: panic!($$$)
 severity: error
 message: "panic! in non-test code can crash the process"
 YAML
@@ -6021,7 +6021,7 @@ YAML
 id: rust.todo-macro
 language: rust
 rule:
-  pattern: todo!($$)
+  pattern: todo!($$$)
 severity: warning
 message: "todo! placeholder present; implement or gate behind cfg(test)"
 YAML
@@ -6030,7 +6030,7 @@ YAML
 id: rust.unimplemented-macro
 language: rust
 rule:
-  pattern: unimplemented!($$)
+  pattern: unimplemented!($$$)
 severity: warning
 message: "unimplemented! present; implement or remove"
 YAML
@@ -6039,7 +6039,7 @@ YAML
 id: rust.unreachable-macro
 language: rust
 rule:
-  pattern: unreachable!($$)
+  pattern: unreachable!($$$)
 severity: warning
 message: "unreachable! will panic if reached; ensure logic guards this"
 YAML
@@ -6048,7 +6048,7 @@ YAML
 id: rust.dbg-macro
 language: rust
 rule:
-  pattern: dbg!($$)
+  pattern: dbg!($$$)
 severity: info
 message: "dbg! macro present; remove in production builds"
 YAML
@@ -6057,7 +6057,7 @@ YAML
 id: rust.println-macro
 language: rust
 rule:
-  pattern: println!($$)
+  pattern: println!($$$)
 severity: info
 message: "println! detected; prefer structured logging for production"
 YAML
@@ -6066,7 +6066,7 @@ YAML
 id: rust.eprintln-macro
 language: rust
 rule:
-  pattern: eprintln!($$)
+  pattern: eprintln!($$$)
 severity: info
 message: "eprintln! detected; prefer structured logging for production"
 YAML
@@ -6251,7 +6251,11 @@ YAML
 id: rust.await-in-for
 language: rust
 rule:
-  pattern: for $P in $I { $$ $F.await $$ }
+  all:
+    - pattern: for $P in $I { $$$BODY }
+    - has:
+        pattern: $F.await
+        stopBy: end
 severity: info
 message: "await inside loop; consider batching with join_all or try_join for concurrency"
 YAML
@@ -6260,9 +6264,10 @@ YAML
 id: rust.thread-sleep-in-async
 language: rust
 rule:
-  pattern: std::thread::sleep($$)
+  pattern: std::thread::sleep($$$)
   inside:
-    pattern: async fn $NAME($$) { $$ }
+    pattern: async fn $NAME($$$ARGS) { $$$BODY }
+    stopBy: end
 severity: warning
 message: "Blocking sleep in async fn; prefer tokio::time::sleep or async timers"
 YAML
@@ -6272,14 +6277,15 @@ id: rust.blocking-fs-in-async
 language: rust
 rule:
   any:
-    - pattern: std::fs::read($$)
-    - pattern: std::fs::read_to_string($$)
-    - pattern: std::fs::write($$)
-    - pattern: std::fs::remove_file($$)
-    - pattern: std::fs::rename($$)
-    - pattern: std::fs::copy($$)
+    - pattern: std::fs::read($$$)
+    - pattern: std::fs::read_to_string($$$)
+    - pattern: std::fs::write($$$)
+    - pattern: std::fs::remove_file($$$)
+    - pattern: std::fs::rename($$$)
+    - pattern: std::fs::copy($$$)
   inside:
-    pattern: async fn $NAME($$) { $$ }
+    pattern: async fn $NAME($$$ARGS) { $$$BODY }
+    stopBy: end
 severity: info
 message: "Blocking std::fs in async fn; prefer tokio::fs equivalents"
 YAML
@@ -6289,10 +6295,11 @@ id: rust.block-on-in-async
 language: rust
 rule:
   any:
-    - pattern: futures::executor::block_on($$)
-    - pattern: tokio::runtime::Runtime::block_on($$)
+    - pattern: futures::executor::block_on($$$)
+    - pattern: tokio::runtime::Runtime::block_on($$$)
   inside:
-    pattern: async fn $N($$) { $$ }
+    pattern: async fn $N($$$ARGS) { $$$BODY }
+    stopBy: end
 severity: warning
 message: "block_on called within async fn; can deadlock runtime"
 YAML
@@ -6301,9 +6308,10 @@ YAML
 id: rust.tokio-block-in-place
 language: rust
 rule:
-  pattern: tokio::task::block_in_place($$)
+  pattern: tokio::task::block_in_place($$$)
   inside:
-    pattern: async fn $N($$) { $$ }
+    pattern: async fn $N($$$ARGS) { $$$BODY }
+    stopBy: end
 severity: info
 message: "block_in_place inside async; ensure this is truly needed and guarded"
 YAML
@@ -6312,9 +6320,10 @@ YAML
 id: rust.thread-spawn-in-async
 language: rust
 rule:
-  pattern: std::thread::spawn($$)
+  pattern: std::thread::spawn($$$)
   inside:
-    pattern: async fn $NAME($$) { $$ }
+    pattern: async fn $NAME($$$ARGS) { $$$BODY }
+    stopBy: end
 severity: warning
 message: "std::thread::spawn inside async fn; prefer tokio::spawn or task::spawn_blocking"
 YAML
@@ -6352,7 +6361,7 @@ YAML
 id: rust.tokio.spawn-no-move
 language: rust
 rule:
-  pattern: tokio::spawn(async { $$ })
+  pattern: tokio::spawn(async { $$$BODY })
 severity: info
 message: "tokio::spawn without `move`; consider `async move` to avoid borrow across await."
 YAML
@@ -6371,7 +6380,11 @@ YAML
 id: rust.clone-in-loop
 language: rust
 rule:
-  pattern: for $P in $I { $$ $X.clone() $$ }
+  all:
+    - pattern: for $P in $I { $$$BODY }
+    - has:
+        pattern: $X.clone()
+        stopBy: end
 severity: warning
 message: "clone() inside loop; assess per-iteration cost or refactor ownership"
 YAML
@@ -6380,7 +6393,7 @@ YAML
 id: rust.map-clone
 language: rust
 rule:
-  pattern: $I.map(|$p| $x.clone())
+  pattern: $I.map(|$P| $P.clone())
 severity: info
 message: "map(|x| x.clone()) can often be replaced with .cloned()"
 YAML
@@ -6398,8 +6411,12 @@ YAML
 id: rust.format-literal-no-vars
 language: rust
 rule:
-  kind: macro_invocation
-  regex: 'format!\s*\(\s*r#*"[^",{}]*"#*\s*\)'
+  pattern: format!($L)
+constraints:
+  L:
+    kind: string_literal
+    not:
+      regex: '[{}]'
 severity: info
 message: "format!(\"literal\") allocates; prefer .to_string() for plain literals"
 YAML
@@ -6408,7 +6425,7 @@ YAML
 id: rust.collect-then-for
 language: rust
 rule:
-  pattern: for $P in $I.collect::<Vec<$T>>() { $$ }
+  pattern: for $P in $I.collect::<Vec<$T>>() { $$$BODY }
 severity: info
 message: "Iterating over collected Vec; consider iterating stream directly or use iter()"
 YAML
@@ -6520,7 +6537,7 @@ YAML
 id: rust.regex-new-unwrap
 language: rust
 rule:
-  pattern: regex::Regex::new($re).unwrap()
+  pattern: regex::Regex::new($RE).unwrap()
 severity: info
 message: "Regex::new(...).unwrap(); consider compile-time regex! or handle error with context"
 YAML
@@ -6552,9 +6569,9 @@ id: rust.assert-macros
 language: rust
 rule:
   any:
-    - pattern: assert!($$)
-    - pattern: assert_eq!($$)
-    - pattern: assert_ne!($$)
+    - pattern: assert!($$$)
+    - pattern: assert_eq!($$$)
+    - pattern: assert_ne!($$$)
     - pattern: assert!(false)
 severity: warning
 message: "assert!/assert_eq!/assert_ne! can panic; verify intent in production paths"
@@ -6565,9 +6582,9 @@ id: rust.debug-assert-macros
 language: rust
 rule:
   any:
-    - pattern: debug_assert!($$)
-    - pattern: debug_assert_eq!($$)
-    - pattern: debug_assert_ne!($$)
+    - pattern: debug_assert!($$$)
+    - pattern: debug_assert_eq!($$$)
+    - pattern: debug_assert_ne!($$$)
 severity: info
 message: "debug_assert! present; ensure invariants are also enforced where needed"
 YAML
@@ -6597,9 +6614,10 @@ YAML
 id: rust.panic-in-drop
 language: rust
 rule:
-  pattern: panic!($$)
+  pattern: panic!($$$)
   inside:
-    pattern: impl Drop for $T { $$ fn drop(&mut self) { $$ } $$ }
+    pattern: impl Drop for $T { $$$BODY }
+    stopBy: end
 severity: error
 message: "panic! in Drop can abort during unwinding; avoid panicking destructors"
 YAML
@@ -6612,7 +6630,8 @@ rule:
     - pattern: $X.unwrap()
     - pattern: $X.expect($MSG)
   inside:
-    pattern: impl Drop for $T { $$ fn drop(&mut self) { $$ } $$ }
+    pattern: impl Drop for $T { $$$BODY }
+    stopBy: end
 severity: warning
 message: "unwrap/expect in Drop can cause abort-on-panic during unwinding; handle errors safely"
 YAML
@@ -6626,7 +6645,8 @@ rule:
     - pattern: $M.read()
     - pattern: $M.write()
   inside:
-    pattern: async fn $N($$) { $$ }
+    pattern: async fn $N($$$ARGS) { $$$BODY }
+    stopBy: end
 severity: warning
 message: "std::sync lock used in async fn; can block executor threads"
 YAML
@@ -6635,11 +6655,24 @@ YAML
 id: rust.async.std-guard-across-await
 language: rust
 rule:
-  any:
-    - pattern: async fn $N($$) { $$ let $G = $M.lock().unwrap(); $$ $X.await $$ }
-    - pattern: async fn $N($$) { $$ let $G = $M.lock().expect($MSG); $$ $X.await $$ }
-    - pattern: async fn $N($$) { $$ let $G = $M.read().unwrap(); $$ $X.await $$ }
-    - pattern: async fn $N($$) { $$ let $G = $M.write().unwrap(); $$ $X.await $$ }
+  all:
+    - pattern: async fn $N($$$ARGS) { $$$BODY }
+    - any:
+        - has:
+            pattern: let $G = $M.lock().unwrap()
+            stopBy: end
+        - has:
+            pattern: let $G = $M.lock().expect($MSG)
+            stopBy: end
+        - has:
+            pattern: let $G = $M.read().unwrap()
+            stopBy: end
+        - has:
+            pattern: let $G = $M.write().unwrap()
+            stopBy: end
+    - has:
+        pattern: $X.await
+        stopBy: end
 severity: warning
 message: "Potential lock guard held across await (std::sync); consider dropping guard before awaiting"
 YAML
@@ -6648,10 +6681,21 @@ YAML
 id: rust.async.tokio-guard-across-await
 language: rust
 rule:
-  any:
-    - pattern: async fn $N($$) { $$ let $G = $M.lock().await; $$ $X.await $$ }
-    - pattern: async fn $N($$) { $$ let $G = $M.read().await; $$ $X.await $$ }
-    - pattern: async fn $N($$) { $$ let $G = $M.write().await; $$ $X.await $$ }
+  all:
+    - pattern: async fn $N($$$ARGS) { $$$BODY }
+    - any:
+        - has:
+            pattern: let $G = $M.lock().await
+            stopBy: end
+        - has:
+            pattern: let $G = $M.read().await
+            stopBy: end
+        - has:
+            pattern: let $G = $M.write().await
+            stopBy: end
+    - has:
+        pattern: $X.await
+        stopBy: end
 severity: warning
 message: "Potential async lock guard held across await; consider reducing critical section or explicit drop()"
 YAML
@@ -6727,6 +6771,8 @@ rule:
   any:
     - pattern: serde_json::from_str($S).unwrap()
     - pattern: serde_json::from_str($S).expect($MSG)
+    - pattern: serde_json::from_str::<$T>($S).unwrap()
+    - pattern: serde_json::from_str::<$T>($S).expect($MSG)
 severity: warning
 message: "serde_json::from_str(...).unwrap()/expect() can panic; add context and validation"
 YAML
@@ -6747,8 +6793,16 @@ id: rust.regex-new-in-loop
 language: rust
 rule:
   any:
-    - pattern: for $P in $I { $$ regex::Regex::new($re) $$ }
-    - pattern: while $C { $$ regex::Regex::new($re) $$ }
+    - all:
+        - pattern: for $P in $I { $$$BODY }
+        - has:
+            pattern: regex::Regex::new($RE)
+            stopBy: end
+    - all:
+        - pattern: while $C { $$$BODY }
+        - has:
+            pattern: regex::Regex::new($RE)
+            stopBy: end
 severity: warning
 message: "Regex::new compiled inside loop; precompile once (lazy_static/once_cell) to avoid perf/DoS risk"
 YAML
