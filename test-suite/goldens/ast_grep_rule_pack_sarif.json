@@ -66,6 +66,117 @@
       "sarif_runs": 1
     }
   ],
+  "corpus_checks": [
+    {
+      "args": [
+        "--format=sarif"
+      ],
+      "driver_rule_count": 0,
+      "driver_rule_ids": [],
+      "expected_rule_ids": [
+        "js.eval-call",
+        "js.innerHTML-assign"
+      ],
+      "fixture": "test-suite/js",
+      "label": "js-rule-pack",
+      "module": "ubs-js.sh",
+      "result_count": 53,
+      "result_rule_ids": [
+        "js.async.await-no-try",
+        "js.async.dangling-promise",
+        "js.async.promiseall-no-try",
+        "js.document-write",
+        "js.eval-call",
+        "js.fetch.no-catch",
+        "js.fs.writeFileSync-not-atomic",
+        "js.innerHTML-assign",
+        "js.resource.listener-no-remove",
+        "react.dangerously-set-html",
+        "security.cookie-insecure",
+        "security.env-in-client",
+        "security.insecure-random",
+        "ts.non-null-assertion-chain"
+      ],
+      "sarif_runs": 1
+    },
+    {
+      "args": [
+        "--format=sarif"
+      ],
+      "driver_rule_count": 0,
+      "driver_rule_ids": [],
+      "expected_rule_ids": [
+        "go.exec-sh-c"
+      ],
+      "fixture": "test-suite/golang",
+      "label": "go-rule-pack",
+      "module": "ubs-golang.sh",
+      "result_count": 74,
+      "result_rule_ids": [
+        "go.close-error-ignored",
+        "go.context-without-cancel",
+        "go.err-shadow",
+        "go.exec-sh-c",
+        "go.http-response-body-not-closed",
+        "go.interface-empty",
+        "go.resource.ticker-no-stop",
+        "go.resource.timer-no-stop"
+      ],
+      "sarif_runs": 1
+    },
+    {
+      "args": [
+        "--no-cargo",
+        "--format=sarif"
+      ],
+      "driver_rule_count": 0,
+      "driver_rule_ids": [],
+      "expected_rule_ids": [
+        "rust.unwrap-call"
+      ],
+      "fixture": "test-suite/rust",
+      "label": "rust-rule-pack",
+      "module": "ubs-rust.sh",
+      "result_count": 148,
+      "result_rule_ids": [
+        "rust.arc-mutex",
+        "rust.chars-nth",
+        "rust.clone-call",
+        "rust.command.shell-c",
+        "rust.cstr-from-bytes-unchecked",
+        "rust.env-var-unwrap",
+        "rust.expect-call",
+        "rust.fixme-comment",
+        "rust.format-literal-no-vars",
+        "rust.from-utf8-unchecked",
+        "rust.get-unchecked",
+        "rust.iter-nth-zero",
+        "rust.len-count-narrow-as",
+        "rust.maybeuninit-assume-init",
+        "rust.mem-transmute",
+        "rust.mem-zeroed",
+        "rust.mutex-lock-expect",
+        "rust.mutex-lock-unwrap",
+        "rust.openssl-no-verify",
+        "rust.parse-unwrap",
+        "rust.resource.thread-no-join",
+        "rust.resource.tokio-task-no-await",
+        "rust.serde-json-unwrap",
+        "rust.slice-from-raw-parts",
+        "rust.suspicious-as-cast",
+        "rust.thread-spawn-no-join",
+        "rust.to-owned-to-string",
+        "rust.todo-comment",
+        "rust.try-into-unwrap",
+        "rust.unreachable-unchecked",
+        "rust.unsafe-auto-traits",
+        "rust.unsafe-block",
+        "rust.unwrap-call",
+        "rust.write-not-atomic"
+      ],
+      "sarif_runs": 1
+    }
+  ],
   "per_rule_validation": [
     {
       "dump_args": [
@@ -1170,6 +1281,6 @@
       ]
     }
   ],
-  "scope": "Rust, TypeScript/JavaScript, and Go ast-grep SARIF evidence plus per-rule parser validation",
-  "version": 2
+  "scope": "Rust, TypeScript/JavaScript, and Go ast-grep SARIF evidence, corpus evidence, and per-rule parser validation",
+  "version": 3
 }

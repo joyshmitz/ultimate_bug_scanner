@@ -475,6 +475,7 @@ AST_GREP_SARIF_CHECKS = (
         "args": ("--format=sarif",),
         "dump_args": ("--dump-rules={rules_dir}",),
         "fixture": "test-suite/js/buggy/security.js",
+        "corpus_fixture": "test-suite/js",
         "expected_rule_ids": ("js.eval-call", "js.innerHTML-assign"),
     },
     {
@@ -483,6 +484,7 @@ AST_GREP_SARIF_CHECKS = (
         "args": ("--format=sarif",),
         "dump_args": ("--dump-rules={rules_dir}",),
         "fixture": "test-suite/golang/buggy/security_sql.go",
+        "corpus_fixture": "test-suite/golang",
         "expected_rule_ids": ("go.exec-sh-c",),
     },
     {
@@ -491,6 +493,7 @@ AST_GREP_SARIF_CHECKS = (
         "args": ("--no-cargo", "--format=sarif"),
         "dump_args": ("--no-cargo", "--dump-rules={rules_dir}"),
         "fixture": "test-suite/rust/buggy/buggy_unwrap.rs",
+        "corpus_fixture": "test-suite/rust",
         "expected_rule_ids": ("rust.unwrap-call",),
     },
 )
@@ -544,30 +547,11 @@ def is_ast_grep_diagnostic_stderr(stderr: str) -> bool:
     )
 
 
-def run_single_ast_grep_rule_pack_check(spec: dict[str, Any], timeout: int) -> dict[str, Any]:
-    label = f"ast-grep-{spec['label']}-sarif"
-    cmd = [
-        str(REPO_ROOT / "modules" / spec["module"]),
-        *spec["args"],
-        spec["fixture"],
-    ]
-    env = os.environ.copy()
-    env.update({"NO_COLOR": "1", "UBS_ENABLE_AUTO_UPDATE": "0"})
-    start = time.monotonic()
-    try:
-        proc = subprocess.run(  # nosec B603 - fixed repo-local command and fixture.
-            cmd,
-            cwd=REPO_ROOT,
-            text=True,
-            capture_output=True,
-            env=env,
-            timeout=timeout,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise AssertionError(f"{label} timed out after {timeout}s") from exc
-    proc.duration_seconds = round(time.monotonic() - start, 3)  # type: ignore[attr-defined]
-
+def sarif_summary_from_process(
+    spec: dict[str, Any],
+    proc: subprocess.CompletedProcess[str],
+    label: str,
+) -> dict[str, Any]:
     if proc.returncode not in (0, 1):
         write_runtime_artifact(label, proc, None)
         raise AssertionError(
@@ -633,12 +617,45 @@ def run_single_ast_grep_rule_pack_check(spec: dict[str, Any], timeout: int) -> d
         "result_rule_ids": sorted(result_rule_ids),
         "sarif_runs": len(payload["runs"]),
     }
-    write_runtime_artifact(
-        label,
-        proc,
-        summary,
-    )
+    write_runtime_artifact(label, proc, summary)
     return summary
+
+
+def run_sarif_rule_pack_check(
+    spec: dict[str, Any],
+    timeout: int,
+    label_suffix: str,
+) -> dict[str, Any]:
+    label = f"ast-grep-{spec['label']}-{label_suffix}-sarif"
+    cmd = [
+        str(REPO_ROOT / "modules" / spec["module"]),
+        *spec["args"],
+        spec["fixture"],
+    ]
+    env = os.environ.copy()
+    env.update({"NO_COLOR": "1", "UBS_ENABLE_AUTO_UPDATE": "0"})
+    start = time.monotonic()
+    try:
+        proc = subprocess.run(  # nosec B603 - fixed repo-local command and fixture.
+            cmd,
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            env=env,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AssertionError(f"{label} timed out after {timeout}s") from exc
+    proc.duration_seconds = round(time.monotonic() - start, 3)  # type: ignore[attr-defined]
+    return sarif_summary_from_process(spec, proc, label)
+
+
+def corpus_sarif_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **spec,
+        "fixture": spec["corpus_fixture"],
+    }
 
 
 def run_single_ast_grep_rule_inventory_check(
@@ -762,7 +779,14 @@ def run_ast_grep_rule_pack_check(timeout: int, update_golden: bool) -> None:
     checks = [
         {
             "label": spec["label"],
-            **run_single_ast_grep_rule_pack_check(spec, timeout),
+            **run_sarif_rule_pack_check(spec, timeout, "fixture"),
+        }
+        for spec in AST_GREP_SARIF_CHECKS
+    ]
+    corpus_checks = [
+        {
+            "label": spec["label"],
+            **run_sarif_rule_pack_check(corpus_sarif_spec(spec), timeout, "corpus"),
         }
         for spec in AST_GREP_SARIF_CHECKS
     ]
@@ -776,17 +800,20 @@ def run_ast_grep_rule_pack_check(timeout: int, update_golden: bool) -> None:
     ]
     update_or_check_ast_grep_sarif_golden(
         {
-            "version": 2,
-            "scope": "Rust, TypeScript/JavaScript, and Go ast-grep SARIF evidence plus per-rule parser validation",
+            "version": 3,
+            "scope": "Rust, TypeScript/JavaScript, and Go ast-grep SARIF evidence, corpus evidence, and per-rule parser validation",
             "checks": checks,
+            "corpus_checks": corpus_checks,
             "per_rule_validation": per_rule_validation,
         },
         update_golden,
     )
     validated_rules = sum(item["rule_count"] for item in per_rule_validation)
+    corpus_results = sum(item["result_count"] for item in corpus_checks)
     print(
         "[ast-grep-rule-pack] PASS "
-        f"({len(AST_GREP_SARIF_CHECKS)} SARIF checks, {validated_rules} rule files)"
+        f"({len(AST_GREP_SARIF_CHECKS)} SARIF checks, "
+        f"{corpus_results} corpus SARIF results, {validated_rules} rule files)"
     )
 
 
