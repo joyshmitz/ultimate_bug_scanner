@@ -2735,8 +2735,15 @@ YAML
 id: go.defer-in-loop
 language: go
 rule:
-  kind: for_statement
-  regex: "(?s)\\bdefer\\s+"
+  all:
+    - pattern: defer $CALL
+    - inside:
+        stopBy: end
+        kind: for_statement
+    - not:
+        inside:
+          stopBy: end
+          kind: func_literal
 severity: warning
 message: "defer inside loop may delay cleanup and grow stack; consider explicit close or scoped function."
 YAML
@@ -2828,14 +2835,10 @@ YAML
 id: go.resource.ticker-no-stop
 language: go
 rule:
-  all:
-    - any:
-        - pattern: $TICKER := time.NewTicker($ARGS)
-        - pattern: $TICKER = time.NewTicker($ARGS)
-    - not:
-        inside:
-          has:
-            pattern: $TICKER.Stop()
+  kind: function_declaration
+  regex: "(?s)time\\.NewTicker\\s*\\("
+  not:
+    regex: "(?s)time\\.NewTicker\\s*\\([^)]*\\).*\\.Stop\\s*\\("
 severity: warning
 message: "time.NewTicker result not stopped in the containing scope."
 YAML
@@ -2872,7 +2875,7 @@ rule:
       regex: "\\bhttp\\.Head\\s*\\("
     - kind: call_expression
       regex: "\\bhttp\\.DefaultClient\\.Do\\s*\\("
-severity: warning
+severity: info
 message: "Default http.Client has no Timeout; prefer custom client with Timeout or context-aware requests."
 YAML
 
@@ -2902,8 +2905,7 @@ language: go
 rule:
   pattern: http.Client{$$$}
   not:
-    has:
-      pattern: "Timeout: $X"
+    regex: "Timeout\\s*:"
 severity: warning
 message: "http.Client without Timeout configured."
 YAML
@@ -3653,9 +3655,9 @@ language: go
 rule:
   any:
     - kind: call_expression
-      regex: "\\.(Exec|Query)\\s*\\([^\\n)]*\\+"
+      regex: "\\.(Exec|Query)\\s*\\([^,\\n)]*\\+"
     - kind: call_expression
-      regex: "\\.(ExecContext|QueryContext)\\s*\\([^\\n)]*\\+"
+      regex: "\\.(ExecContext|QueryContext)\\s*\\([^,\\n)]*,\\s*[^,\\n)]*\\+"
 severity: warning
 message: "Potential dynamic SQL via string concatenation at Exec/Query sink; use placeholders/parameters."
 YAML
@@ -4803,7 +4805,7 @@ print_category "Detects: default client use, missing client/server timeouts, res
 print_subheader "Default http.Client usage (Get/Post/Head/DefaultClient.Do)"
 count=$([[ "$HAS_AST_GREP" -eq 1 && -f "$AST_JSON" ]] && ast_count "go.http-default-client" || echo 0)
 if [ "$count" -gt 0 ]; then
-  print_finding "warning" "$count" "Default http.Client without Timeout"
+  print_finding "info" "$count" "Default http.Client without Timeout"
 else
   print_finding "good" "No obvious default client usage"
 fi
