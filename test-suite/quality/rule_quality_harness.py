@@ -775,6 +775,37 @@ def run_single_ast_grep_rule_inventory_check(
     return summary
 
 
+def build_rule_inventory_coverage(
+    corpus_checks: list[dict[str, Any]],
+    per_rule_validation: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    corpus_by_label = {item["label"]: item for item in corpus_checks}
+    coverage: list[dict[str, Any]] = []
+    for inventory in per_rule_validation:
+        label = inventory["label"]
+        generated_rule_ids = {
+            rule["id"]
+            for rule in inventory.get("rules", [])
+            if isinstance(rule, dict) and isinstance(rule.get("id"), str)
+        }
+        corpus_rule_ids = set(corpus_by_label.get(label, {}).get("result_rule_ids", []))
+        covered_rule_ids = generated_rule_ids & corpus_rule_ids
+        coverage.append(
+            {
+                "label": label,
+                "corpus_result_rule_ids_without_generated_rule": sorted(
+                    corpus_rule_ids - generated_rule_ids
+                ),
+                "covered_generated_rule_count": len(covered_rule_ids),
+                "covered_generated_rule_ids": sorted(covered_rule_ids),
+                "generated_rule_count": len(generated_rule_ids),
+                "uncovered_generated_rule_count": len(generated_rule_ids - corpus_rule_ids),
+                "uncovered_generated_rule_ids": sorted(generated_rule_ids - corpus_rule_ids),
+            }
+        )
+    return coverage
+
+
 def run_ast_grep_rule_pack_check(timeout: int, update_golden: bool) -> None:
     checks = [
         {
@@ -798,22 +829,31 @@ def run_ast_grep_rule_pack_check(timeout: int, update_golden: bool) -> None:
         }
         for spec in AST_GREP_SARIF_CHECKS
     ]
+    rule_inventory_coverage = build_rule_inventory_coverage(
+        corpus_checks,
+        per_rule_validation,
+    )
     update_or_check_ast_grep_sarif_golden(
         {
-            "version": 3,
+            "version": 4,
             "scope": "Rust, TypeScript/JavaScript, and Go ast-grep SARIF evidence, corpus evidence, and per-rule parser validation",
             "checks": checks,
             "corpus_checks": corpus_checks,
             "per_rule_validation": per_rule_validation,
+            "rule_inventory_coverage": rule_inventory_coverage,
         },
         update_golden,
     )
     validated_rules = sum(item["rule_count"] for item in per_rule_validation)
     corpus_results = sum(item["result_count"] for item in corpus_checks)
+    covered_generated_rules = sum(
+        item["covered_generated_rule_count"] for item in rule_inventory_coverage
+    )
     print(
         "[ast-grep-rule-pack] PASS "
         f"({len(AST_GREP_SARIF_CHECKS)} SARIF checks, "
-        f"{corpus_results} corpus SARIF results, {validated_rules} rule files)"
+        f"{corpus_results} corpus SARIF results, "
+        f"{covered_generated_rules}/{validated_rules} generated rules covered by corpora)"
     )
 
 
