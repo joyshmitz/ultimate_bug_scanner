@@ -40,11 +40,11 @@
       ]
     },
     "campaign": {
-      "buggy_cases_with_required_substrings": 86,
+      "buggy_cases_with_required_substrings": 87,
       "case_count": 173,
-      "clean_cases_with_forbidden_substrings": 78,
-      "strict_zero_clean_cases": 77,
-      "weak_case_count": 12,
+      "clean_cases_with_forbidden_substrings": 86,
+      "strict_zero_clean_cases": 83,
+      "weak_case_count": 3,
       "weak_cases": [
         {
           "id": "golang-taint-clean",
@@ -70,93 +70,6 @@
           "path": "test-suite/js/clean/taint_analysis.js",
           "reasons": [
             "clean_not_strict_zero_critical_warning"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "rust-blocking-async-sync-clean",
-          "language": "rust",
-          "path": "test-suite/rust/clean/blocking_sync.rs",
-          "reasons": [
-            "clean_missing_forbid_substrings",
-            "clean_not_strict_zero_critical_warning"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "rust-collections-mentions-clean",
-          "language": "rust",
-          "path": "test-suite/rust/clean/string_allocation_mentions.rs",
-          "reasons": [
-            "clean_missing_forbid_substrings",
-            "clean_not_strict_zero_critical_warning"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "rust-macro-mentions-clean",
-          "language": "rust",
-          "path": "test-suite/rust/clean/parse_validation_mentions.rs",
-          "reasons": [
-            "clean_missing_forbid_substrings"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "rust-parse-validation-mentions-clean",
-          "language": "rust",
-          "path": "test-suite/rust/clean/parse_validation_mentions.rs",
-          "reasons": [
-            "clean_missing_forbid_substrings",
-            "clean_not_strict_zero_critical_warning"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "rust-perf-hotspots-mentions-clean",
-          "language": "rust",
-          "path": "test-suite/rust/clean/perf_hotspot_mentions.rs",
-          "reasons": [
-            "clean_missing_forbid_substrings",
-            "clean_not_strict_zero_critical_warning"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "rust-resource-lifecycle",
-          "language": "rust",
-          "path": "test-suite/rust/buggy/resource_lifecycle.rs",
-          "reasons": [
-            "buggy_missing_require_substrings"
-          ],
-          "side": "buggy"
-        },
-        {
-          "id": "rust-string-allocation-mentions-clean",
-          "language": "rust",
-          "path": "test-suite/rust/clean/string_allocation_mentions.rs",
-          "reasons": [
-            "clean_missing_forbid_substrings",
-            "clean_not_strict_zero_critical_warning"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "rust-type-narrowing-clean",
-          "language": "rust",
-          "path": "test-suite/rust/clean/type_narrowing.rs",
-          "reasons": [
-            "clean_missing_forbid_substrings",
-            "clean_not_strict_zero_critical_warning"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "rust-unsafe-memory-mentions-clean",
-          "language": "rust",
-          "path": "test-suite/rust/clean/unsafe_mentions.rs",
-          "reasons": [
-            "clean_missing_forbid_substrings"
           ],
           "side": "clean"
         }

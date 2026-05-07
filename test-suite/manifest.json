@@ -6948,7 +6948,20 @@
           "warning": {
             "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "mem::transmute usage",
+          "mem::zeroed usage",
+          "MaybeUninit::assume_init usage",
+          "Unchecked UB-adjacent APIs used",
+          "Direct indexing/slicing may panic",
+          "CStr unchecked conversion used",
+          "Unchecked indexing APIs in use",
+          "UTF-8 unchecked conversion APIs",
+          "slice::from_raw_parts(_mut) usage",
+          "Unsafe Send/Sync implementations",
+          "Potential panics inside Drop implementations"
+        ]
       }
     },
     {
@@ -7000,10 +7013,19 @@
       "expect": {
         "exit_code": "zero",
         "totals": {
+          "critical": {
+            "max": 0
+          },
           "warning": {
             "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "thread::sleep in async",
+          "Blocking std::fs in async code",
+          "block_on within async function",
+          "std::thread::spawn inside async fn"
+        ]
       }
     },
     {
@@ -7056,10 +7078,20 @@
       "expect": {
         "exit_code": "zero",
         "totals": {
+          "critical": {
+            "max": 0
+          },
           "warning": {
             "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "Use TryFrom/TryInto or explicit checked bounds before storing sizes in narrow integer fields",
+          "Handle conversion errors explicitly; panics can be input-dependent",
+          "Validate input or propagate errors with context",
+          "Add context, validation, and schema checks; avoid panics on malformed data",
+          "Handle missing/invalid env vars with defaults or clear error propagation"
+        ]
       }
     },
     {
@@ -7089,7 +7121,17 @@
           "info": {
             "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "Potential panics via unwrap/expect",
+          "panic! macro(s) present",
+          "unreachable! may panic if reached",
+          "todo! placeholders present",
+          "unimplemented! placeholders present",
+          "dbg! macros present",
+          "println! found - prefer logging",
+          "eprintln! found - prefer logging"
+        ]
       }
     },
     {
@@ -7143,13 +7185,21 @@
       "expect": {
         "exit_code": "zero",
         "totals": {
+          "critical": {
+            "max": 0
+          },
           "warning": {
             "max": 0
           },
           "info": {
             "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "clone() inside loops - potential perf hit",
+          "collect::<Vec<_>>() usage - consider streaming",
+          "nth(0) detected - prefer next()"
+        ]
       }
     },
     {
@@ -7203,13 +7253,21 @@
       "expect": {
         "exit_code": "zero",
         "totals": {
+          "critical": {
+            "max": 0
+          },
           "warning": {
             "max": 0
           },
           "info": {
             "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "Regex::new compiled inside loop",
+          "chars().nth(n)/nth_back(n) used",
+          "String allocation inside loop"
+        ]
       }
     },
     {
@@ -7258,13 +7316,20 @@
       "expect": {
         "exit_code": "zero",
         "totals": {
+          "critical": {
+            "max": 0
+          },
           "info": {
             "max": 0
           },
           "warning": {
             "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "to_owned().to_string() chain - simplify",
+          "format!(literal) allocates - use .to_string()"
+        ]
       }
     },
     {
@@ -8264,10 +8329,17 @@
       "expect": {
         "exit_code": "nonzero",
         "totals": {
+          "critical": {
+            "min": 1
+          },
           "warning": {
             "min": 1
           }
-        }
+        },
+        "require_substrings": [
+          "std::thread::spawn without join()",
+          "tokio::spawn tasks not awaited/cancelled"
+        ]
       }
     },
     {
@@ -8313,10 +8385,16 @@
       "expect": {
         "exit_code": "zero",
         "totals": {
+          "critical": {
+            "max": 0
+          },
           "warning": {
-            "max": 1
+            "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "Guarded Option/Result later unwrap"
+        ]
       }
     },
     {

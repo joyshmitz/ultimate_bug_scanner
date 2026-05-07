@@ -805,6 +805,21 @@ collect_samples_rg() {
   printf '['; local i=0; for l in "${lines[@]}"; do [[ $i -gt 0 ]] && printf ','; printf '"%s"' "$(printf '%s' "$l" | json_escape)"; i=$((i+1)); done; printf ']'
 }
 
+rust_code_match_lines() {
+  local pattern="$1"
+  local target="$2"
+  "${GREP_RN[@]}" -e "$pattern" "$target" 2>/dev/null |
+    grep -v 'ubs:ignore' |
+    filter_test_lines |
+    while IFS= read -r line; do
+      [[ -n "$line" ]] || continue
+      [[ "$line" =~ ^(.+):([0-9]+):(.*)$ ]] || continue
+      local code="${BASH_REMATCH[3]}"
+      code="${code%%//*}"
+      [[ "$code" =~ $pattern ]] && printf '%s\n' "$line"
+    done
+}
+
 run_resource_lifecycle_checks() {
   local header_shown=0
   local rid
@@ -813,13 +828,13 @@ run_resource_lifecycle_checks() {
     local release_regex="${RESOURCE_LIFECYCLE_RELEASE[$rid]:-}"
     [[ -z "$acquire_regex" || -z "$release_regex" ]] && continue
     local file_list
-    file_list=$("${GREP_RN[@]}" -e "$acquire_regex" "$PROJECT_DIR" 2>/dev/null | cut -d: -f1 | sort -u || true)
+    file_list=$(rust_code_match_lines "$acquire_regex" "$PROJECT_DIR" | cut -d: -f1 | sort -u || true)
     [[ -n "$file_list" ]] || continue
     while IFS= read -r file; do
       [[ -z "$file" ]] && continue
       local acquire_hits release_hits
-      acquire_hits=$("${GREP_RN[@]}" -e "$acquire_regex" "$file" 2>/dev/null | count_lines || true)
-      release_hits=$("${GREP_RN[@]}" -e "$release_regex" "$file" 2>/dev/null | count_lines || true)
+      acquire_hits=$(rust_code_match_lines "$acquire_regex" "$file" | count_lines || true)
+      release_hits=$(rust_code_match_lines "$release_regex" "$file" | count_lines || true)
       acquire_hits=${acquire_hits:-0}
       release_hits=${release_hits:-0}
       if (( acquire_hits > release_hits )); then
