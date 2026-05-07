@@ -2982,11 +2982,11 @@ YAML
 id: react.list-missing-key
 language: tsx
 rule:
-  kind: jsx_element
-  pattern: <$_ />
-  not:
-    has:
-      pattern: key={$KEY}
+  all:
+    - kind: jsx_self_closing_element
+    - pattern: <$COMP $$$ />
+    - not:
+        regex: "key\\s*="
 severity: warning
 message: "JSX list item missing key prop"
 YAML
@@ -3043,7 +3043,8 @@ YAML
 id: security.http-url
 language: typescript
 rule:
-  pattern: "http://$REST"
+  kind: string_fragment
+  regex: "^http://"
 severity: info
 message: "Plain HTTP URL detected; ensure HTTPS is used for production"
 YAML
