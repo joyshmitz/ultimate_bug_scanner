@@ -1,4 +1,16 @@
 {
+  "clean_fuzz_budget_scopes": {
+    "campaign": {
+      "case_count": 86,
+      "default_iterations": 3,
+      "default_transformed_scan_count": 258
+    },
+    "smoke": {
+      "case_count": 16,
+      "default_iterations": 3,
+      "default_transformed_scan_count": 48
+    }
+  },
   "languages": {
     "cpp": {
       "buggy_cases_with_required_substrings": 6,

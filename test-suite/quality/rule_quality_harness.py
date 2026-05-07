@@ -128,6 +128,7 @@ METAMORPHIC_CASE_IDS = (
 )
 BASE_METAMORPHIC_TRANSFORMS = ("comments",)
 CAMPAIGN_LANGUAGE_METAMORPHIC_TRANSFORMS = ("whitespace",)
+DEFAULT_FUZZ_ITERATIONS = 3
 JSON_DECODER = json.JSONDecoder()
 
 sys.path.insert(0, str(TEST_ROOT))
@@ -293,6 +294,9 @@ def build_rule_coverage(manifest: dict[str, Any]) -> dict[str, Any]:
     return {
         "version": 2,
         "scope": "security fixture pairs for every UBS-supported language module plus Rust, TypeScript/JavaScript, and Go campaign behavior-rule scopes",
+        "clean_fuzz_budget_scopes": clean_fuzz_budget_scopes_from_robustness(
+            robustness_scopes,
+        ),
         "languages": by_language,
         "metamorphic_transform_scopes": metamorphic_transform_scopes_from_robustness(
             robustness_scopes,
@@ -417,6 +421,21 @@ def metamorphic_transform_scopes_from_robustness(
             "transformed_scan_count": sum(len(ids) for ids in by_transform.values()),
         }
     return transform_scopes
+
+
+def clean_fuzz_budget_scopes_from_robustness(
+    robustness_scopes: dict[str, dict[str, list[str]]],
+) -> dict[str, dict[str, int]]:
+    return {
+        scope: {
+            "case_count": len(scope_cases.get("clean_fuzz", [])),
+            "default_iterations": DEFAULT_FUZZ_ITERATIONS,
+            "default_transformed_scan_count": (
+                len(scope_cases.get("clean_fuzz", [])) * DEFAULT_FUZZ_ITERATIONS
+            ),
+        }
+        for scope, scope_cases in sorted(robustness_scopes.items())
+    }
 
 
 def update_or_check_golden(current: dict[str, Any], update: bool) -> None:
@@ -1283,7 +1302,7 @@ def main(argv: list[str]) -> int:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case-timeout", type=int, default=60)
-    parser.add_argument("--fuzz-iterations", type=int, default=3)
+    parser.add_argument("--fuzz-iterations", type=int, default=DEFAULT_FUZZ_ITERATIONS)
     parser.add_argument(
         "--runtime-scope",
         choices=("smoke", "campaign", "all"),
