@@ -79,19 +79,28 @@ CLEAN_FUZZ_CASE_IDS = (
     "golang-open-redirect-clean",
     "golang-request-body-limit-clean",
     "golang-ssrf-clean",
+    "golang-tls-verification-clean",
     "rust-request-body-limit-clean",
+    "rust-tls-verification-clean",
+    "js-typescript-tls-verification-clean",
     "swift-open-redirect-clean",
 )
 METAMORPHIC_CASE_IDS = (
     *SMOKE_CASE_IDS,
+    "js-typescript-tls-verification-buggy",
+    "js-typescript-tls-verification-clean",
     "js-typescript-sql-injection-buggy",
     "js-typescript-sql-injection-clean",
     "golang-open-redirect-buggy",
     "golang-open-redirect-clean",
     "golang-ssrf-buggy",
     "golang-ssrf-clean",
+    "golang-tls-verification-buggy",
+    "golang-tls-verification-clean",
     "rust-sql-injection-buggy",
     "rust-sql-injection-clean",
+    "rust-tls-verification-buggy",
+    "rust-tls-verification-clean",
 )
 JSON_DECODER = json.JSONDecoder()
 
