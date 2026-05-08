@@ -11261,19 +11261,18 @@
         "--fail-on-warning",
         "--no-dotnet"
       ],
-      "bin_shims": {
-        "ast-grep": "#!/usr/bin/env bash\nif [[ \"${1:-}\" == \"--version\" ]]; then\n  echo \"ast-grep 0.40.1\"\n  exit 0\nfi\nif [[ \"${1:-}\" == \"run\" && \"${2:-}\" == \"--help\" ]]; then\n  exit 0\nfi\nif [[ \"${1:-}\" == \"scan\" ]]; then\n  file=\"$PWD/test-suite/csharp/buggy/AstRulePackBuggy.cs\"\n  cat <<JSON\n[\n  {\"ruleId\":\"cs-async-discarded-task-run\",\"file\":\"$file\",\"range\":{\"start\":{\"row\":5,\"column\":8}}},\n  {\"ruleId\":\"cs-await-in-lock\",\"file\":\"$file\",\"range\":{\"start\":{\"row\":8,\"column\":12}}}\n]\nJSON\n  exit 0\nfi\nexit 64\n"
-      },
       "expect": {
         "exit_code": "nonzero",
         "totals": {
           "warning": {
-            "min": 2
+            "min": 4
           }
         },
         "require_substrings": [
           "Task.Run result discarded without observation",
-          "Await used while holding a lock"
+          "Task.Factory.StartNew result discarded without observation",
+          "Await used while holding a lock",
+          "Parallel.ForEach async lambda drops asynchronous work"
         ]
       }
     },

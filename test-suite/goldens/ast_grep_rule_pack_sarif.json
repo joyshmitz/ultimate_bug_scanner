@@ -46,6 +46,32 @@
     },
     {
       "args": [
+        "--format=sarif",
+        "--no-dotnet",
+        "--only=17"
+      ],
+      "driver_rule_count": 0,
+      "driver_rule_ids": [],
+      "expected_rule_ids": [
+        "cs-async-discarded-startnew",
+        "cs-async-discarded-task-run",
+        "cs-await-in-lock",
+        "cs-parallel-foreach-async-lambda"
+      ],
+      "fixture": "test-suite/csharp/buggy/AstRulePackBuggy.cs",
+      "label": "csharp-rule-pack",
+      "module": "ubs-csharp.sh",
+      "result_count": 4,
+      "result_rule_ids": [
+        "cs-async-discarded-startnew",
+        "cs-async-discarded-task-run",
+        "cs-await-in-lock",
+        "cs-parallel-foreach-async-lambda"
+      ],
+      "sarif_runs": 1
+    },
+    {
+      "args": [
         "--no-cargo",
         "--format=sarif"
       ],
@@ -455,6 +481,32 @@
     },
     {
       "args": [
+        "--format=sarif",
+        "--no-dotnet",
+        "--only=17"
+      ],
+      "driver_rule_count": 0,
+      "driver_rule_ids": [],
+      "expected_rule_ids": [
+        "cs-async-discarded-startnew",
+        "cs-async-discarded-task-run",
+        "cs-await-in-lock",
+        "cs-parallel-foreach-async-lambda"
+      ],
+      "fixture": "test-suite/csharp",
+      "label": "csharp-rule-pack",
+      "module": "ubs-csharp.sh",
+      "result_count": 4,
+      "result_rule_ids": [
+        "cs-async-discarded-startnew",
+        "cs-async-discarded-task-run",
+        "cs-await-in-lock",
+        "cs-parallel-foreach-async-lambda"
+      ],
+      "sarif_runs": 1
+    },
+    {
+      "args": [
         "--no-cargo",
         "--format=sarif"
       ],
@@ -845,6 +897,20 @@
         "go.tls-minversion-missing",
         "go.waitgroup-add-no-done",
         "go.write-error-ignored"
+      ]
+    },
+    {
+      "label": "csharp-rule-pack",
+      "list_args": [
+        "--list-rules"
+      ],
+      "module": "ubs-csharp.sh",
+      "rule_count": 4,
+      "rule_ids": [
+        "cs-async-discarded-startnew",
+        "cs-async-discarded-task-run",
+        "cs-await-in-lock",
+        "cs-parallel-foreach-async-lambda"
       ]
     },
     {
@@ -1655,6 +1721,42 @@
           "id": "go.write-error-ignored",
           "language": "go",
           "match_count": 0
+        }
+      ]
+    },
+    {
+      "dump_args": [
+        "--dump-rules={rules_dir}",
+        "--no-dotnet"
+      ],
+      "fixture": "test-suite/csharp/buggy/AstRulePackBuggy.cs",
+      "label": "csharp-rule-pack",
+      "module": "ubs-csharp.sh",
+      "rule_count": 4,
+      "rules": [
+        {
+          "file": "cs-async-discarded-startnew.yml",
+          "id": "cs-async-discarded-startnew",
+          "language": "csharp",
+          "match_count": 1
+        },
+        {
+          "file": "cs-async-discarded-task-run.yml",
+          "id": "cs-async-discarded-task-run",
+          "language": "csharp",
+          "match_count": 1
+        },
+        {
+          "file": "cs-await-in-lock.yml",
+          "id": "cs-await-in-lock",
+          "language": "csharp",
+          "match_count": 1
+        },
+        {
+          "file": "cs-parallel-foreach-async-lambda.yml",
+          "id": "cs-parallel-foreach-async-lambda",
+          "language": "csharp",
+          "match_count": 1
         }
       ]
     },
@@ -2669,6 +2771,20 @@
     },
     {
       "corpus_result_rule_ids_without_generated_rule": [],
+      "covered_generated_rule_count": 4,
+      "covered_generated_rule_ids": [
+        "cs-async-discarded-startnew",
+        "cs-async-discarded-task-run",
+        "cs-await-in-lock",
+        "cs-parallel-foreach-async-lambda"
+      ],
+      "generated_rule_count": 4,
+      "label": "csharp-rule-pack",
+      "uncovered_generated_rule_count": 0,
+      "uncovered_generated_rule_ids": []
+    },
+    {
+      "corpus_result_rule_ids_without_generated_rule": [],
       "covered_generated_rule_count": 77,
       "covered_generated_rule_ids": [
         "rust.arc-mutex",
@@ -2848,6 +2964,6 @@
       "uncovered_generated_rule_ids": []
     }
   ],
-  "scope": "Rust, TypeScript/JavaScript, Go, Swift, Ruby, and Java ast-grep SARIF evidence, corpus evidence, list-rules inventory, and per-rule parser validation",
+  "scope": "Rust, TypeScript/JavaScript, Go, C#, Swift, Ruby, and Java ast-grep SARIF evidence, corpus evidence, list-rules inventory, and per-rule parser validation",
   "version": 4
 }

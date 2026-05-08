@@ -898,6 +898,21 @@ AST_GREP_SARIF_CHECKS = (
         "expected_rule_ids": ("go.exec-sh-c",),
     },
     {
+        "label": "csharp-rule-pack",
+        "module": "ubs-csharp.sh",
+        "args": ("--format=sarif", "--no-dotnet", "--only=17"),
+        "dump_args": ("--dump-rules={rules_dir}", "--no-dotnet"),
+        "list_args": ("--list-rules",),
+        "fixture": "test-suite/csharp/buggy/AstRulePackBuggy.cs",
+        "corpus_fixture": "test-suite/csharp",
+        "expected_rule_ids": (
+            "cs-async-discarded-startnew",
+            "cs-async-discarded-task-run",
+            "cs-await-in-lock",
+            "cs-parallel-foreach-async-lambda",
+        ),
+    },
+    {
         "label": "rust-rule-pack",
         "module": "ubs-rust.sh",
         "args": ("--no-cargo", "--format=sarif"),
@@ -1569,7 +1584,7 @@ def run_ast_grep_rule_pack_check(timeout: int, update_golden: bool) -> None:
     update_or_check_ast_grep_sarif_golden(
         {
             "version": 4,
-            "scope": "Rust, TypeScript/JavaScript, Go, Swift, Ruby, and Java ast-grep SARIF evidence, corpus evidence, list-rules inventory, and per-rule parser validation",
+            "scope": "Rust, TypeScript/JavaScript, Go, C#, Swift, Ruby, and Java ast-grep SARIF evidence, corpus evidence, list-rules inventory, and per-rule parser validation",
             "checks": checks,
             "corpus_checks": corpus_checks,
             "list_rule_validation": list_rule_validation,

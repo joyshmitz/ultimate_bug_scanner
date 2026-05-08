@@ -52,6 +52,7 @@ SUMMARY_JSON=""
 EMIT_FINDINGS_JSON=""
 DUMP_RULES_DIR=""
 EXTRA_AST_RULES_DIRS=""
+LIST_RULES=0
 
 NO_DOTNET=0
 NO_DOTNET_BUILD=0
@@ -521,50 +522,50 @@ write_ast_rules() {
   [[ "$HAS_AST_GREP" -eq 1 ]] || return 0
   AST_RULES_DIR="$TMP_DIR/ast-rules"
   mkdir -p "$AST_RULES_DIR"
-  local rules_file="$AST_RULES_DIR/csharp-pack.yml"
-  cat >"$rules_file"<<'YAML'
-rules:
-  - id: cs-async-discarded-task-run
-    message: "Task.Run result discarded; await or retain the Task so failures are observed."
-    severity: warning
-    language: cs
-    rule:
-      any:
-        - pattern: |
-            Task.Run($$ARGS);
-        - pattern: |
-            _ = Task.Run($$ARGS);
-  - id: cs-async-discarded-startnew
-    message: "Task.Factory.StartNew result discarded; await or retain the Task so failures are observed."
-    severity: warning
-    language: cs
-    rule:
-      any:
-        - pattern: |
-            Task.Factory.StartNew($$ARGS);
-        - pattern: |
-            _ = Task.Factory.StartNew($$ARGS);
-  - id: cs-await-in-lock
-    message: "Await inside lock can deadlock or break monitor assumptions; move async work outside the lock."
-    severity: warning
-    language: cs
-    rule:
-      pattern: |
-        lock ($OBJ) { $$PRE; await $EXPR; $$POST; }
-  - id: cs-parallel-foreach-async-lambda
-    message: "Parallel.ForEach with async lambda does not await the async work; use Parallel.ForEachAsync or gather Tasks."
-    severity: warning
-    language: cs
-    rule:
-      any:
-        - pattern: |
-            Parallel.ForEach($SRC, async ($ITEM) => { $$BODY });
-        - pattern: |
-            Parallel.ForEach($SRC, async $ITEM => { $$BODY });
-        - pattern: |
-            Parallel.ForEach($SRC, async ($ITEM) => $EXPR);
-        - pattern: |
-            Parallel.ForEach($SRC, async $ITEM => $EXPR);
+
+  cat >"$AST_RULES_DIR/cs-async-discarded-task-run.yml"<<'YAML'
+id: cs-async-discarded-task-run
+message: "Task.Run result discarded; await or retain the Task so failures are observed."
+severity: warning
+language: csharp
+rule:
+  any:
+    - pattern: Task.Run($ARG);
+    - pattern: _ = Task.Run($ARG);
+YAML
+
+  cat >"$AST_RULES_DIR/cs-async-discarded-startnew.yml"<<'YAML'
+id: cs-async-discarded-startnew
+message: "Task.Factory.StartNew result discarded; await or retain the Task so failures are observed."
+severity: warning
+language: csharp
+rule:
+  any:
+    - pattern: Task.Factory.StartNew($ARG);
+    - pattern: _ = Task.Factory.StartNew($ARG);
+YAML
+
+  cat >"$AST_RULES_DIR/cs-await-in-lock.yml"<<'YAML'
+id: cs-await-in-lock
+message: "Await inside lock can deadlock or break monitor assumptions; move async work outside the lock."
+severity: warning
+language: csharp
+rule:
+  pattern: |
+    lock ($OBJ) { await $EXPR; }
+YAML
+
+  cat >"$AST_RULES_DIR/cs-parallel-foreach-async-lambda.yml"<<'YAML'
+id: cs-parallel-foreach-async-lambda
+message: "Parallel.ForEach with async lambda does not await the async work; use Parallel.ForEachAsync or gather Tasks."
+severity: warning
+language: csharp
+rule:
+  any:
+    - pattern: Parallel.ForEach($SRC, async $ITEM => $EXPR);
+    - pattern: Parallel.ForEach($SRC, async ($ITEM) => $EXPR);
+    - pattern: |
+        Parallel.ForEach($SRC, async $ITEM => { await $EXPR; });
 YAML
 
   # Config file
@@ -586,9 +587,13 @@ YAML
 
   if [[ -n "$DUMP_RULES_DIR" ]]; then
     mkdir -p "$DUMP_RULES_DIR"
-    cp -R "$AST_RULES_DIR" "$DUMP_RULES_DIR/" 2>/dev/null || true
-    cp "$AST_CONFIG_FILE" "$DUMP_RULES_DIR/" 2>/dev/null || true
+    cp "$AST_RULES_DIR"/*.yml "$DUMP_RULES_DIR/" 2>/dev/null || true
   fi
+}
+
+list_generated_ast_rule_ids() {
+  local rules_dir="$1"
+  ( set +o pipefail; awk 'BEGIN{FS=":"}/^id:[[:space:]]*/{gsub(/^[[:space:]]*id:[[:space:]]*/,"");print;}' "$rules_dir"/*.yml 2>/dev/null || true ) | sort -u
 }
 
 ast_scan_json_stream() {
@@ -735,7 +740,7 @@ emit_sarif() {
         if [[ "${line:-0}" -gt 0 ]]; then
           printf ',"region":{"startLine":%s}' "$line"
         fi
-        printf '}}]}'
+        printf '}}]'
       fi
       printf '}'
     done
@@ -1075,6 +1080,7 @@ Options:
 
   --rules=DIR[,DIR]            Extra ast-grep rule directories
   --dump-rules=DIR             Dump generated ast rules + config
+  --list-rules                 List generated ast-grep rule IDs and exit
 
   --no-dotnet                  Skip all dotnet CLI checks
   --no-build                   Skip dotnet build
@@ -1115,6 +1121,7 @@ parse_args() {
 
       --rules=*) EXTRA_AST_RULES_DIRS="${1#*=}"; shift;;
       --dump-rules=*) DUMP_RULES_DIR="${1#*=}"; shift;;
+      --list-rules) LIST_RULES=1; shift;;
 
       --no-dotnet) NO_DOTNET=1; shift;;
       --no-build) NO_DOTNET_BUILD=1; shift;;
@@ -3541,6 +3548,19 @@ main() {
   TMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t ubs_csharp)"
   detect_tools
   detect_ast_grep_style
+
+  if [[ "$LIST_RULES" -eq 1 ]]; then
+    QUIET=1
+    NO_COLOR_FLAG=1
+    if [[ "$HAS_AST_GREP" -eq 0 ]]; then
+      echo "ERROR: --list-rules requires ast-grep." >&2
+      exit 2
+    fi
+    write_ast_rules || exit 2
+    list_generated_ast_rule_ids "$AST_RULES_DIR"
+    exit 0
+  fi
+
   banner
 
   if [[ "$FORMAT" == "text" ]]; then

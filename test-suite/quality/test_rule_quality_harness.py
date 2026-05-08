@@ -331,6 +331,25 @@ class AstGrepRulePackHelperTest(unittest.TestCase):
             specs["java-rule-pack"]["expected_rule_ids"],
         )
 
+    def test_ast_grep_rule_pack_specs_include_csharp_dumpable_rules(self) -> None:
+        specs = {
+            spec["label"]: spec
+            for spec in rule_quality_harness.AST_GREP_SARIF_CHECKS
+        }
+
+        self.assertIn("csharp-rule-pack", specs)
+        self.assertEqual(specs["csharp-rule-pack"]["module"], "ubs-csharp.sh")
+        self.assertIn("--no-dotnet", specs["csharp-rule-pack"]["args"])
+        self.assertEqual(
+            specs["csharp-rule-pack"]["expected_rule_ids"],
+            (
+                "cs-async-discarded-startnew",
+                "cs-async-discarded-task-run",
+                "cs-await-in-lock",
+                "cs-parallel-foreach-async-lambda",
+            ),
+        )
+
     def test_parses_machine_readable_list_rule_ids(self) -> None:
         rule_ids = rule_quality_harness.parse_list_rule_ids(
             "go.exec-sh-c\nrust.unwrap-call\n",
