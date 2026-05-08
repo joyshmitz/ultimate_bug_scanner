@@ -122,6 +122,79 @@ class RuntimeArtifactTest(unittest.TestCase):
         self.assertEqual(result["exit_code"], -1)
         self.assertEqual(result["summary"], {"timed_out": True, "timeout_seconds": 1})
 
+    def test_run_real_case_rejects_unparseable_output_without_opt_in(self) -> None:
+        label = "unit-unparseable-run-real-case"
+        artifact_dir = (
+            rule_quality_harness.TEST_ROOT / "artifacts" / "rule_quality" / label
+        )
+        proc = subprocess.CompletedProcess(
+            ["ubs"],
+            0,
+            stdout="not a UBS summary",
+            stderr="",
+        )
+        manifest = {"defaults": {"args": [], "ubs_bin": "../ubs"}}
+        case = {
+            "args": ["--only=rust"],
+            "env": {},
+            "expect": {"exit_code": "zero"},
+            "path": "test-suite/rust/buggy/sql_injection.rs",
+        }
+
+        with mock.patch.object(
+            rule_quality_harness.subprocess,
+            "run",
+            return_value=proc,
+        ):
+            with self.assertRaisesRegex(AssertionError, "unparseable UBS output"):
+                rule_quality_harness.run_real_case(
+                    manifest,
+                    case,
+                    label,
+                    timeout=1,
+                )
+
+        self.assertEqual(
+            (artifact_dir / "stdout.log").read_text(encoding="utf-8"),
+            "not a UBS summary",
+        )
+        result = json.loads((artifact_dir / "result.json").read_text(encoding="utf-8"))
+        self.assertIsNone(result["summary"])
+
+    def test_run_real_case_allows_unparseable_output_with_explicit_opt_in(self) -> None:
+        label = "unit-unparseable-run-real-case-allowed"
+        proc = subprocess.CompletedProcess(
+            ["ubs"],
+            0,
+            stdout="expected environment failure text",
+            stderr="",
+        )
+        manifest = {"defaults": {"args": [], "ubs_bin": "../ubs"}}
+        case = {
+            "args": ["--only=rust"],
+            "env": {},
+            "expect": {
+                "allow_unparseable_output": True,
+                "exit_code": "zero",
+                "require_substrings": ["environment failure"],
+            },
+            "path": "test-suite/rust/buggy/sql_injection.rs",
+        }
+
+        with mock.patch.object(
+            rule_quality_harness.subprocess,
+            "run",
+            return_value=proc,
+        ):
+            _, totals = rule_quality_harness.run_real_case(
+                manifest,
+                case,
+                label,
+                timeout=1,
+            )
+
+        self.assertEqual(totals, {"critical": 0, "warning": 0, "info": 0})
+
 
 class RuleInventoryCoverageInvariantTest(unittest.TestCase):
     def test_builds_inventory_coverage_from_corpus_and_dumped_rules(self) -> None:

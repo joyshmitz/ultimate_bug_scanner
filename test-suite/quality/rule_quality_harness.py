@@ -753,6 +753,11 @@ def summary_totals(summary: dict[str, Any] | None) -> dict[str, int]:
     }
 
 
+def allow_unparseable_output(case: dict[str, Any]) -> bool:
+    expect = case.get("expect") or {}
+    return bool(expect.get("allow_unparseable_output", False))
+
+
 def write_runtime_artifact(
     label: str,
     proc: subprocess.CompletedProcess[str],
@@ -840,6 +845,12 @@ def run_real_case(
     proc.duration_seconds = round(time.monotonic() - start, 3)  # type: ignore[attr-defined]
     project_label = str(path_override) if path_override is not None else case["path"]
     summary = parse_summary(case, proc.stdout, project_label)
+    if summary is None and not allow_unparseable_output(case):
+        write_runtime_artifact(label, proc, None)
+        raise AssertionError(
+            f"{label} produced unparseable UBS output; stdout/stderr are captured under "
+            f"test-suite/artifacts/rule_quality/{label}/"
+        )
     write_runtime_artifact(label, proc, summary)
     fail_on_warning = "--fail-on-warning" in cmd
     errors = check_expectations(
