@@ -3,61 +3,14 @@
     "all": {
       "buggy_cases_with_required_substrings": 138,
       "case_count": 276,
-      "clean_cases_with_forbidden_substrings": 133,
-      "strict_zero_clean_cases": 134,
-      "weak_case_count": 6,
+      "clean_cases_with_forbidden_substrings": 137,
+      "strict_zero_clean_cases": 137,
+      "weak_case_count": 1,
       "weak_cases": [
-        {
-          "id": "elixir-security-command-clean",
-          "language": "elixir",
-          "path": "test-suite/elixir/clean/command_execution.ex",
-          "reasons": [
-            "clean_missing_forbid_substrings"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "kotlin-archive-extraction-clean",
-          "language": "java",
-          "path": "test-suite/kotlin/archive_extraction_clean",
-          "reasons": [
-            "clean_not_strict_zero_critical_warning"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "kotlin-security-command-clean",
-          "language": "java",
-          "path": "test-suite/kotlin/security_clean",
-          "reasons": [
-            "clean_missing_forbid_substrings",
-            "clean_not_strict_zero_critical_warning"
-          ],
-          "side": "clean"
-        },
         {
           "id": "python-taint-clean",
           "language": "python",
           "path": "test-suite/python/clean/taint_analysis.py",
-          "reasons": [
-            "clean_missing_forbid_substrings",
-            "clean_not_strict_zero_critical_warning"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "ruby-taint-clean",
-          "language": "ruby",
-          "path": "test-suite/ruby/security_clean",
-          "reasons": [
-            "clean_missing_forbid_substrings"
-          ],
-          "side": "clean"
-        },
-        {
-          "id": "swift-security-process-clean",
-          "language": "swift",
-          "path": "test-suite/swift/clean/process_shell.swift",
           "reasons": [
             "clean_missing_forbid_substrings",
             "clean_not_strict_zero_critical_warning"
@@ -136,7 +89,7 @@
     },
     "elixir": {
       "buggy_cases_with_required_substrings": 8,
-      "clean_cases_with_forbidden_substrings": 7,
+      "clean_cases_with_forbidden_substrings": 8,
       "security_pairs": 8,
       "strict_zero_clean_cases": 8
     },
@@ -148,9 +101,9 @@
     },
     "java": {
       "buggy_cases_with_required_substrings": 14,
-      "clean_cases_with_forbidden_substrings": 13,
+      "clean_cases_with_forbidden_substrings": 14,
       "security_pairs": 14,
-      "strict_zero_clean_cases": 12
+      "strict_zero_clean_cases": 14
     },
     "js": {
       "buggy_cases_with_required_substrings": 25,
@@ -166,7 +119,7 @@
     },
     "ruby": {
       "buggy_cases_with_required_substrings": 7,
-      "clean_cases_with_forbidden_substrings": 6,
+      "clean_cases_with_forbidden_substrings": 7,
       "security_pairs": 7,
       "strict_zero_clean_cases": 7
     },
@@ -178,9 +131,9 @@
     },
     "swift": {
       "buggy_cases_with_required_substrings": 7,
-      "clean_cases_with_forbidden_substrings": 6,
+      "clean_cases_with_forbidden_substrings": 7,
       "security_pairs": 7,
-      "strict_zero_clean_cases": 6
+      "strict_zero_clean_cases": 7
     }
   },
   "metamorphic_transform_scopes": {
@@ -853,7 +806,7 @@
       "buggy_path": "test-suite/elixir/buggy/command_execution.ex",
       "buggy_require_count": 1,
       "clean_case": "elixir-security-command-clean",
-      "clean_forbid_count": 0,
+      "clean_forbid_count": 1,
       "clean_max_critical": 0,
       "clean_max_warning": 0,
       "clean_path": "test-suite/elixir/clean/command_execution.ex",
@@ -1163,7 +1116,7 @@
       "clean_case": "kotlin-archive-extraction-clean",
       "clean_forbid_count": 1,
       "clean_max_critical": 0,
-      "clean_max_warning": 999,
+      "clean_max_warning": 0,
       "clean_path": "test-suite/kotlin/archive_extraction_clean",
       "language": "java",
       "slug": "kotlin_archive_extraction"
@@ -1217,9 +1170,9 @@
       "buggy_path": "test-suite/kotlin/security_buggy",
       "buggy_require_count": 1,
       "clean_case": "kotlin-security-command-clean",
-      "clean_forbid_count": 0,
+      "clean_forbid_count": 1,
       "clean_max_critical": 0,
-      "clean_max_warning": 999,
+      "clean_max_warning": 0,
       "clean_path": "test-suite/kotlin/security_clean",
       "language": "java",
       "slug": "kotlin_security"
@@ -2197,7 +2150,7 @@
       "buggy_path": "test-suite/ruby/security_buggy",
       "buggy_require_count": 2,
       "clean_case": "ruby-taint-clean",
-      "clean_forbid_count": 0,
+      "clean_forbid_count": 2,
       "clean_max_critical": 0,
       "clean_max_warning": 0,
       "clean_path": "test-suite/ruby/security_clean",
@@ -2505,9 +2458,9 @@
       "buggy_path": "test-suite/swift/buggy/process_shell.swift",
       "buggy_require_count": 1,
       "clean_case": "swift-security-process-clean",
-      "clean_forbid_count": 0,
+      "clean_forbid_count": 1,
       "clean_max_critical": 0,
-      "clean_max_warning": 999,
+      "clean_max_warning": 0,
       "clean_path": "test-suite/swift/clean/process_shell.swift",
       "language": "swift",
       "slug": "security-process"

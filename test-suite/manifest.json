@@ -8441,8 +8441,14 @@
         "totals": {
           "critical": {
             "max": 0
+          },
+          "warning": {
+            "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "ProcessBuilder shell interpreter invoked"
+        ]
       }
     },
     {
@@ -8490,6 +8496,9 @@
         "exit_code": "zero",
         "totals": {
           "critical": {
+            "max": 0
+          },
+          "warning": {
             "max": 0
           }
         },
@@ -8887,8 +8896,14 @@
         "totals": {
           "critical": {
             "max": 0
+          },
+          "warning": {
+            "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "Shell-backed Process/system execution"
+        ]
       }
     },
     {
@@ -10367,7 +10382,11 @@
           "warning": {
             "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "Shell invocation risk",
+          "Backtick command execution"
+        ]
       }
     },
     {
@@ -11120,7 +11139,10 @@
           "warning": {
             "max": 0
           }
-        }
+        },
+        "forbid_substrings": [
+          "Shell-backed command execution"
+        ]
       }
     },
     {

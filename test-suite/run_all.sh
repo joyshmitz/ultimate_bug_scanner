@@ -22,6 +22,10 @@ if [[ -n "${TMPDIR:-}" ]]; then
   export TMP="${TMP:-$TMPDIR}"
   export TEMP="${TEMP:-$TMPDIR}"
 fi
+if command -v uv >/dev/null 2>&1 && [[ -z "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
+  UV_PROJECT_ENVIRONMENT="${TMPDIR:-/tmp}/ubs-test-suite-uv"
+  export UV_PROJECT_ENVIRONMENT
+fi
 
 # CRITICAL: Verify checksums BEFORE running tests
 # This prevents deploying broken code where modules don't match checksums
