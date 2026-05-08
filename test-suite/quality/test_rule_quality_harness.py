@@ -3,8 +3,11 @@
 
 import contextlib
 import io
+import json
 import os
+import subprocess
 import unittest
+from unittest import mock
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +55,72 @@ class QualityHarnessConfigTest(unittest.TestCase):
                 os.environ.pop("UBS_RULE_QUALITY_CASE_TIMEOUT", None)
             else:
                 os.environ["UBS_RULE_QUALITY_CASE_TIMEOUT"] = old_value
+
+
+class RuntimeArtifactTest(unittest.TestCase):
+    def test_completed_process_from_timeout_preserves_partial_output(self) -> None:
+        exc = subprocess.TimeoutExpired(
+            ["ubs", "fixture.rs"],
+            7,
+            output=b"partial stdout",
+            stderr=b"partial stderr",
+        )
+
+        proc = rule_quality_harness.completed_process_from_timeout(
+            ["ubs", "fixture.rs"],
+            exc,
+            duration=1.2345,
+            timeout=7,
+        )
+
+        self.assertEqual(proc.returncode, -1)
+        self.assertEqual(proc.stdout, "partial stdout")
+        self.assertEqual(proc.stderr, "partial stderr\nTimed out after 7s\n")
+        self.assertEqual(proc.duration_seconds, 1.234)
+
+    def test_run_real_case_timeout_writes_fresh_artifact(self) -> None:
+        label = "unit-timeout-run-real-case"
+        artifact_dir = (
+            rule_quality_harness.TEST_ROOT / "artifacts" / "rule_quality" / label
+        )
+        timeout = subprocess.TimeoutExpired(
+            ["ubs"],
+            1,
+            output=b"started scan",
+            stderr=b"still running",
+        )
+        manifest = {"defaults": {"args": [], "ubs_bin": "../ubs"}}
+        case = {
+            "args": ["--only=rust"],
+            "env": {},
+            "expect": {},
+            "path": "test-suite/rust/buggy/sql_injection.rs",
+        }
+
+        with mock.patch.object(
+            rule_quality_harness.subprocess,
+            "run",
+            side_effect=timeout,
+        ):
+            with self.assertRaisesRegex(AssertionError, "timed out after 1s"):
+                rule_quality_harness.run_real_case(
+                    manifest,
+                    case,
+                    label,
+                    timeout=1,
+                )
+
+        result = json.loads((artifact_dir / "result.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            (artifact_dir / "stdout.log").read_text(encoding="utf-8"),
+            "started scan",
+        )
+        self.assertEqual(
+            (artifact_dir / "stderr.log").read_text(encoding="utf-8"),
+            "still running\nTimed out after 1s\n",
+        )
+        self.assertEqual(result["exit_code"], -1)
+        self.assertEqual(result["summary"], {"timed_out": True, "timeout_seconds": 1})
 
 
 class RuleInventoryCoverageInvariantTest(unittest.TestCase):

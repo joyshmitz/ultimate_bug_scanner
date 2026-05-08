@@ -165,6 +165,7 @@ from run_manifest import (  # noqa: E402
     parse_module_text_summary,
     parse_text_summary,
     parse_toon_summary,
+    timeout_output,
 )
 
 
@@ -776,6 +777,41 @@ def write_runtime_artifact(
     )
 
 
+def completed_process_from_timeout(
+    cmd: list[str],
+    exc: subprocess.TimeoutExpired,
+    duration: float,
+    timeout: int,
+) -> subprocess.CompletedProcess[str]:
+    stderr = timeout_output(exc.stderr)
+    if stderr and not stderr.endswith("\n"):
+        stderr += "\n"
+    stderr += f"Timed out after {timeout}s\n"
+    proc = subprocess.CompletedProcess(
+        cmd,
+        -1,
+        stdout=timeout_output(exc.stdout),
+        stderr=stderr,
+    )
+    proc.duration_seconds = round(duration, 3)  # type: ignore[attr-defined]
+    return proc
+
+
+def write_timeout_artifact(
+    label: str,
+    cmd: list[str],
+    exc: subprocess.TimeoutExpired,
+    duration: float,
+    timeout: int,
+) -> None:
+    proc = completed_process_from_timeout(cmd, exc, duration, timeout)
+    write_runtime_artifact(
+        label,
+        proc,
+        {"timed_out": True, "timeout_seconds": timeout},
+    )
+
+
 def run_real_case(
     manifest: dict[str, Any],
     case: dict[str, Any],
@@ -799,6 +835,7 @@ def run_real_case(
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
+        write_timeout_artifact(label, cmd, exc, time.monotonic() - start, timeout)
         raise AssertionError(f"{label} timed out after {timeout}s: {' '.join(cmd)}") from exc
     proc.duration_seconds = round(time.monotonic() - start, 3)  # type: ignore[attr-defined]
     project_label = str(path_override) if path_override is not None else case["path"]
@@ -1073,6 +1110,7 @@ def run_sarif_rule_pack_check(
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
+        write_timeout_artifact(label, cmd, exc, time.monotonic() - start, timeout)
         raise AssertionError(f"{label} timed out after {timeout}s") from exc
     proc.duration_seconds = round(time.monotonic() - start, 3)  # type: ignore[attr-defined]
     return sarif_summary_from_process(spec, proc, label)
@@ -1116,6 +1154,7 @@ def run_single_ast_grep_rule_inventory_check(
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
+        write_timeout_artifact(label, cmd, exc, time.monotonic() - start, timeout)
         raise AssertionError(f"{label} timed out while dumping rules after {timeout}s") from exc
     proc.duration_seconds = round(time.monotonic() - start, 3)  # type: ignore[attr-defined]
 
@@ -1158,6 +1197,13 @@ def run_single_ast_grep_rule_inventory_check(
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:
+            write_timeout_artifact(
+                rule_label,
+                scan_cmd,
+                exc,
+                time.monotonic() - start,
+                timeout,
+            )
             raise AssertionError(f"{rule_label} timed out after {timeout}s") from exc
         scan_proc.duration_seconds = round(time.monotonic() - start, 3)  # type: ignore[attr-defined]
         if scan_proc.returncode not in (0, 1):
