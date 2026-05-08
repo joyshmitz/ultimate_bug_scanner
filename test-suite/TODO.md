@@ -37,7 +37,7 @@
 
 ## JS clean fixture follow-ups
 - [x] Replace the remaining regex heuristics (async error coverage, try/finally bookkeeping, DOM listener cleanup) with ast-grep rules so clean fixtures run with zero warnings rather than noisy false positives.
-- [~] When the ast-grep coverage lands, restore the JS clean manifest case to run the full category set (no selective skipping) so we keep parity with real-world scans.
-  - **Status (2026-01-05):** Investigated. With `--fail-on-warning`, clean fixtures trigger 38 warnings from rules like `js.async.await-no-try` on intentional error-propagation patterns (e.g., functions that let await errors bubble up). Current behavior downgrades ASYNC_ERROR warnings to INFO by default, which is reasonable since these are advisory. Tracked in `ultimate_bug_scanner-hm4` for potential rule refinement.
+- [x] When the ast-grep coverage lands, restore the JS clean manifest case to run the full category set (no selective skipping) so we keep parity with real-world scans.
+  - **Status (2026-05-07):** Resolved. `js-core-clean`, `js-module-clean`, and `js-node-clean` now run with `--only=js`, no category skip list, and zero critical/warning budgets in `test-suite/manifest.json`; `test-suite/goldens/rule_coverage.json` freezes those aggregate clean budgets.
 
-_Last updated: 2026-01-05 13:42 UTC_
+_Last updated: 2026-05-07 20:24 America/New_York_
