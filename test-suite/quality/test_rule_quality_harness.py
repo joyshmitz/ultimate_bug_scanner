@@ -244,6 +244,60 @@ class RunManifestExpectationTest(unittest.TestCase):
         self.assertIn("forbidden substring 'must not appear' present in stdout", errors)
 
 
+class CommandConstructionTest(unittest.TestCase):
+    @staticmethod
+    def manifest() -> dict[str, object]:
+        return {
+            "defaults": {
+                "args": ["--ci"],
+                "ubs_bin": "../ubs",
+            }
+        }
+
+    def test_meta_runner_uses_relative_repo_path_for_repo_local_override(self) -> None:
+        command = rule_quality_harness.command_for_case(
+            self.manifest(),
+            {
+                "args": ["--only=rust"],
+                "path": "test-suite/rust/buggy/request_body_limit.rs",
+            },
+            rule_quality_harness.REPO_ROOT / "test-suite/rust/buggy/request_body_limit.rs",
+        )
+
+        self.assertEqual(command[-1], "test-suite/rust/buggy/request_body_limit.rs")
+
+    def test_meta_runner_uses_parent_directory_for_external_file_variant(self) -> None:
+        external_file = Path("/etc/hosts")
+        self.assertTrue(external_file.is_file())
+
+        command = rule_quality_harness.command_for_case(
+            self.manifest(),
+            {
+                "args": ["--only=golang"],
+                "path": "test-suite/golang/security/request_body_limit_buggy.go",
+            },
+            external_file,
+        )
+
+        self.assertEqual(command[-1], "/etc")
+
+    def test_direct_module_keeps_external_file_variant_path(self) -> None:
+        external_file = Path("/etc/hosts")
+        self.assertTrue(external_file.is_file())
+
+        command = rule_quality_harness.command_for_case(
+            self.manifest(),
+            {
+                "args": ["--format=json"],
+                "path": "test-suite/js/security/request-body-limit-buggy.ts",
+                "ubs_bin": "../modules/ubs-js.sh",
+            },
+            external_file,
+        )
+
+        self.assertEqual(command[-1], "/etc/hosts")
+
+
 class ScopeConstructionTest(unittest.TestCase):
     @staticmethod
     def case(case_id: str, language: str, tags: list[str]) -> dict[str, object]:
