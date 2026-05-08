@@ -2,6 +2,7 @@
 """Unit checks for the rule-quality harness invariants."""
 
 import unittest
+from pathlib import Path
 
 import rule_quality_harness
 
@@ -190,6 +191,57 @@ class ScopeConstructionTest(unittest.TestCase):
             scopes["campaign"]["clean_fuzz"],
             ["rust-clean", "js-behavior-clean"],
         )
+
+
+class MetamorphicTransformTest(unittest.TestCase):
+    def test_target_languages_get_comment_and_whitespace_transforms(self) -> None:
+        for language in ("js", "golang", "rust"):
+            with self.subTest(language=language):
+                self.assertEqual(
+                    rule_quality_harness.metamorphic_transforms_for_case(
+                        {"language": language}
+                    ),
+                    ("comments", "whitespace"),
+                )
+
+        self.assertEqual(
+            rule_quality_harness.metamorphic_transforms_for_case({"language": "python"}),
+            ("comments",),
+        )
+
+    def test_comment_transform_uses_language_comment_prefix(self) -> None:
+        js_source = rule_quality_harness.transform_source(
+            "const answer = 42;\n",
+            Path("fixture.ts"),
+            "comments",
+        )
+        ruby_source = rule_quality_harness.transform_source(
+            "answer = 42\n",
+            Path("fixture.rb"),
+            "comments",
+        )
+
+        self.assertTrue(js_source.startswith("// UBS rule-quality benign metamorphic marker"))
+        self.assertTrue(ruby_source.startswith("# UBS rule-quality benign metamorphic marker"))
+
+    def test_whitespace_transform_adds_crlf_padding(self) -> None:
+        transformed = rule_quality_harness.transform_source(
+            "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\n",
+            Path("fixture.rs"),
+            "whitespace",
+        )
+
+        self.assertTrue(transformed.startswith("\r\nline1"))
+        self.assertIn("line4\r\n\r\nline5", transformed)
+        self.assertTrue(transformed.endswith("\r\n"))
+
+    def test_unknown_transform_is_rejected(self) -> None:
+        with self.assertRaisesRegex(AssertionError, "unknown source transform"):
+            rule_quality_harness.transform_source(
+                "let x = 1;",
+                Path("fixture.ts"),
+                "delete-code",
+            )
 
 
 class TargetCleanBaselineBudgetTest(unittest.TestCase):
