@@ -42,6 +42,12 @@ def resolve_path(base: Path, value: str) -> Path:
     return (base / p).resolve()
 
 
+def empty_manifest_error(cases: Sequence[Dict[str, Any]]) -> str | None:
+    if not cases:
+        return "manifest must contain at least one case"
+    return None
+
+
 def missing_selected_case_ids(
     cases: Sequence[Dict[str, Any]],
     selected_ids: set[str],
@@ -60,6 +66,19 @@ def invalid_case_id_labels(cases: Sequence[Dict[str, Any]]) -> List[str]:
         for index, case in enumerate(cases)
         if not isinstance(case.get("id"), str) or not case["id"].strip()
     ]
+
+
+def duplicate_case_ids(cases: Sequence[Dict[str, Any]]) -> List[str]:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for case in cases:
+        case_id = case.get("id")
+        if not isinstance(case_id, str):
+            continue
+        if case_id in seen:
+            duplicates.add(case_id)
+        seen.add(case_id)
+    return sorted(duplicates)
 
 
 def disabled_case_ids(
@@ -306,10 +325,20 @@ def main() -> None:
             print(f"{entry.get('id')}: {status} :: {entry.get('description','').strip()}")
         return
 
+    empty_error = empty_manifest_error(cases)
+    if empty_error:
+        print(f"[manifest] FAIL\n  - {empty_error}", file=sys.stderr)
+        sys.exit(1)
+
     invalid_case_ids = invalid_case_id_labels(cases)
     if invalid_case_ids:
         for case_label in invalid_case_ids:
             print(f"[{case_label}] FAIL\n  - manifest case lacks a non-empty id", file=sys.stderr)
+        sys.exit(1)
+    duplicate_ids = duplicate_case_ids(cases)
+    if duplicate_ids:
+        for case_id in duplicate_ids:
+            print(f"[{case_id}] FAIL\n  - duplicate manifest case id", file=sys.stderr)
         sys.exit(1)
 
     selected_ids = set(args.cases or [])

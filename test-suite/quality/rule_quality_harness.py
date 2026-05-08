@@ -142,6 +142,8 @@ sys.path.insert(0, str(TEST_ROOT))
 from run_manifest import (  # noqa: E402
     check_expectations,
     disabled_case_ids,
+    duplicate_case_ids,
+    empty_manifest_error,
     extract_json_from_stdout,
     invalid_case_id_labels,
     missing_selected_case_ids,

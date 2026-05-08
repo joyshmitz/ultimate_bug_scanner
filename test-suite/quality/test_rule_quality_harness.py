@@ -377,6 +377,31 @@ class RunManifestExpectationTest(unittest.TestCase):
             ["manifest case #2", "manifest case #3", "manifest case #4"],
         )
 
+    def test_empty_manifest_error_rejects_zero_case_manifest(self) -> None:
+        self.assertEqual(
+            rule_quality_harness.empty_manifest_error([]),
+            "manifest must contain at least one case",
+        )
+        self.assertIsNone(
+            rule_quality_harness.empty_manifest_error(
+                [{"id": "js-typescript-sql-injection-buggy"}]
+            )
+        )
+
+    def test_duplicate_case_ids_rejects_ambiguous_focused_runs(self) -> None:
+        duplicates = rule_quality_harness.duplicate_case_ids(
+            [
+                {"id": "rust-sql-injection-buggy"},
+                {"id": "golang-ssrf-clean"},
+                {"id": "rust-sql-injection-buggy"},
+                {"id": "golang-ssrf-clean"},
+                {"id": "js-typescript-request-body-limit-clean"},
+                {"description": "missing id is handled by a separate preflight"},
+            ]
+        )
+
+        self.assertEqual(duplicates, ["golang-ssrf-clean", "rust-sql-injection-buggy"])
+
     def test_disabled_case_ids_fail_only_selected_scope(self) -> None:
         cases = [
             {"id": "js-typescript-sql-injection-buggy", "enabled": False},
