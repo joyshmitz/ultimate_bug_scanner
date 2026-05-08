@@ -157,6 +157,78 @@
         "swift.urlsession.task-no-resume"
       ],
       "sarif_runs": 1
+    },
+    {
+      "args": [
+        "--format=sarif"
+      ],
+      "driver_rule_count": 0,
+      "driver_rule_ids": [],
+      "expected_rule_ids": [
+        "rails.constantize",
+        "rails.csrf-skip",
+        "rails.permit-bang",
+        "rails.update-attributes",
+        "rb.and-or",
+        "rb.bare-rescue",
+        "rb.digest-weak",
+        "rb.equal-literal",
+        "rb.eval-exec",
+        "rb.file-open-no-block",
+        "rb.float-eq",
+        "rb.http-verify-none",
+        "rb.json-parse",
+        "rb.marshal-load",
+        "rb.mutable-const",
+        "rb.nil-eq.eq",
+        "rb.nil-eq.neq",
+        "rb.open-pipe",
+        "rb.raise-e",
+        "rb.random-insecure",
+        "rb.rescue-exception",
+        "rb.retry",
+        "rb.send-dynamic",
+        "rb.sql-interp",
+        "rb.system-single-string",
+        "rb.tempfile-no-block",
+        "rb.yaml-unsafe",
+        "ruby.resource.thread-no-join"
+      ],
+      "fixture": "test-suite/ruby/ast_grep_rule_pack_coverage.rb",
+      "label": "ruby-rule-pack",
+      "module": "ubs-ruby.sh",
+      "result_count": 29,
+      "result_rule_ids": [
+        "rails.constantize",
+        "rails.csrf-skip",
+        "rails.permit-bang",
+        "rails.update-attributes",
+        "rb.and-or",
+        "rb.bare-rescue",
+        "rb.digest-weak",
+        "rb.equal-literal",
+        "rb.eval-exec",
+        "rb.file-open-no-block",
+        "rb.float-eq",
+        "rb.http-verify-none",
+        "rb.json-parse",
+        "rb.marshal-load",
+        "rb.mutable-const",
+        "rb.nil-eq.eq",
+        "rb.nil-eq.neq",
+        "rb.open-pipe",
+        "rb.raise-e",
+        "rb.random-insecure",
+        "rb.rescue-exception",
+        "rb.retry",
+        "rb.send-dynamic",
+        "rb.sql-interp",
+        "rb.system-single-string",
+        "rb.tempfile-no-block",
+        "rb.yaml-unsafe",
+        "ruby.resource.thread-no-join"
+      ],
+      "sarif_runs": 1
     }
   ],
   "corpus_checks": [
@@ -409,6 +481,78 @@
         "swift.urlsession.task-no-resume"
       ],
       "sarif_runs": 1
+    },
+    {
+      "args": [
+        "--format=sarif"
+      ],
+      "driver_rule_count": 0,
+      "driver_rule_ids": [],
+      "expected_rule_ids": [
+        "rails.constantize",
+        "rails.csrf-skip",
+        "rails.permit-bang",
+        "rails.update-attributes",
+        "rb.and-or",
+        "rb.bare-rescue",
+        "rb.digest-weak",
+        "rb.equal-literal",
+        "rb.eval-exec",
+        "rb.file-open-no-block",
+        "rb.float-eq",
+        "rb.http-verify-none",
+        "rb.json-parse",
+        "rb.marshal-load",
+        "rb.mutable-const",
+        "rb.nil-eq.eq",
+        "rb.nil-eq.neq",
+        "rb.open-pipe",
+        "rb.raise-e",
+        "rb.random-insecure",
+        "rb.rescue-exception",
+        "rb.retry",
+        "rb.send-dynamic",
+        "rb.sql-interp",
+        "rb.system-single-string",
+        "rb.tempfile-no-block",
+        "rb.yaml-unsafe",
+        "ruby.resource.thread-no-join"
+      ],
+      "fixture": "test-suite/ruby",
+      "label": "ruby-rule-pack",
+      "module": "ubs-ruby.sh",
+      "result_count": 39,
+      "result_rule_ids": [
+        "rails.constantize",
+        "rails.csrf-skip",
+        "rails.permit-bang",
+        "rails.update-attributes",
+        "rb.and-or",
+        "rb.bare-rescue",
+        "rb.digest-weak",
+        "rb.equal-literal",
+        "rb.eval-exec",
+        "rb.file-open-no-block",
+        "rb.float-eq",
+        "rb.http-verify-none",
+        "rb.json-parse",
+        "rb.marshal-load",
+        "rb.mutable-const",
+        "rb.nil-eq.eq",
+        "rb.nil-eq.neq",
+        "rb.open-pipe",
+        "rb.raise-e",
+        "rb.random-insecure",
+        "rb.rescue-exception",
+        "rb.retry",
+        "rb.send-dynamic",
+        "rb.sql-interp",
+        "rb.system-single-string",
+        "rb.tempfile-no-block",
+        "rb.yaml-unsafe",
+        "ruby.resource.thread-no-join"
+      ],
+      "sarif_runs": 1
     }
   ],
   "list_rule_validation": [
@@ -630,6 +774,44 @@
       "rule_count": 1,
       "rule_ids": [
         "swift.urlsession.task-no-resume"
+      ]
+    },
+    {
+      "label": "ruby-rule-pack",
+      "list_args": [
+        "--list-rules"
+      ],
+      "module": "ubs-ruby.sh",
+      "rule_count": 28,
+      "rule_ids": [
+        "rails.constantize",
+        "rails.csrf-skip",
+        "rails.permit-bang",
+        "rails.update-attributes",
+        "rb.and-or",
+        "rb.bare-rescue",
+        "rb.digest-weak",
+        "rb.equal-literal",
+        "rb.eval-exec",
+        "rb.file-open-no-block",
+        "rb.float-eq",
+        "rb.http-verify-none",
+        "rb.json-parse",
+        "rb.marshal-load",
+        "rb.mutable-const",
+        "rb.nil-eq.eq",
+        "rb.nil-eq.neq",
+        "rb.open-pipe",
+        "rb.raise-e",
+        "rb.random-insecure",
+        "rb.rescue-exception",
+        "rb.retry",
+        "rb.send-dynamic",
+        "rb.sql-interp",
+        "rb.system-single-string",
+        "rb.tempfile-no-block",
+        "rb.yaml-unsafe",
+        "ruby.resource.thread-no-join"
       ]
     }
   ],
@@ -1752,6 +1934,185 @@
           "match_count": 2
         }
       ]
+    },
+    {
+      "dump_args": [
+        "--dump-rules={rules_dir}"
+      ],
+      "fixture": "test-suite/ruby/ast_grep_rule_pack_coverage.rb",
+      "label": "ruby-rule-pack",
+      "module": "ubs-ruby.sh",
+      "rule_count": 28,
+      "rules": [
+        {
+          "file": "and-or.yml",
+          "id": "rb.and-or",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "bare-rescue.yml",
+          "id": "rb.bare-rescue",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "digest-weak.yml",
+          "id": "rb.digest-weak",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "eval-exec.yml",
+          "id": "rb.eval-exec",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "file-open-no-block.yml",
+          "id": "rb.file-open-no-block",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "float-eq.yml",
+          "id": "rb.float-eq",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "http-verify-none.yml",
+          "id": "rb.http-verify-none",
+          "language": "ruby",
+          "match_count": 2
+        },
+        {
+          "file": "is-literal.yml",
+          "id": "rb.equal-literal",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "json-parse.yml",
+          "id": "rb.json-parse",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "marshal-load.yml",
+          "id": "rb.marshal-load",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "mutable-const.yml",
+          "id": "rb.mutable-const",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "nil-eq-eq.yml",
+          "id": "rb.nil-eq.eq",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "nil-eq-neq.yml",
+          "id": "rb.nil-eq.neq",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "open-pipe.yml",
+          "id": "rb.open-pipe",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "rails-constantize.yml",
+          "id": "rails.constantize",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "rails-csrf-skip.yml",
+          "id": "rails.csrf-skip",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "rails-permit-bang.yml",
+          "id": "rails.permit-bang",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "rails-update-attributes.yml",
+          "id": "rails.update-attributes",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "raise-e.yml",
+          "id": "rb.raise-e",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "random-insecure.yml",
+          "id": "rb.random-insecure",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "rescue-exception.yml",
+          "id": "rb.rescue-exception",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "retry.yml",
+          "id": "rb.retry",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "ruby-resource-thread.yml",
+          "id": "ruby.resource.thread-no-join",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "send-dynamic.yml",
+          "id": "rb.send-dynamic",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "sql-interp.yml",
+          "id": "rb.sql-interp",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "system-single-string.yml",
+          "id": "rb.system-single-string",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "tempfile-no-block.yml",
+          "id": "rb.tempfile-no-block",
+          "language": "ruby",
+          "match_count": 1
+        },
+        {
+          "file": "yaml-unsafe.yml",
+          "id": "rb.yaml-unsafe",
+          "language": "ruby",
+          "match_count": 1
+        }
+      ]
     }
   ],
   "rule_inventory_coverage": [
@@ -1973,8 +2334,46 @@
       "label": "swift-rule-pack",
       "uncovered_generated_rule_count": 0,
       "uncovered_generated_rule_ids": []
+    },
+    {
+      "corpus_result_rule_ids_without_generated_rule": [],
+      "covered_generated_rule_count": 28,
+      "covered_generated_rule_ids": [
+        "rails.constantize",
+        "rails.csrf-skip",
+        "rails.permit-bang",
+        "rails.update-attributes",
+        "rb.and-or",
+        "rb.bare-rescue",
+        "rb.digest-weak",
+        "rb.equal-literal",
+        "rb.eval-exec",
+        "rb.file-open-no-block",
+        "rb.float-eq",
+        "rb.http-verify-none",
+        "rb.json-parse",
+        "rb.marshal-load",
+        "rb.mutable-const",
+        "rb.nil-eq.eq",
+        "rb.nil-eq.neq",
+        "rb.open-pipe",
+        "rb.raise-e",
+        "rb.random-insecure",
+        "rb.rescue-exception",
+        "rb.retry",
+        "rb.send-dynamic",
+        "rb.sql-interp",
+        "rb.system-single-string",
+        "rb.tempfile-no-block",
+        "rb.yaml-unsafe",
+        "ruby.resource.thread-no-join"
+      ],
+      "generated_rule_count": 28,
+      "label": "ruby-rule-pack",
+      "uncovered_generated_rule_count": 0,
+      "uncovered_generated_rule_ids": []
     }
   ],
-  "scope": "Rust, TypeScript/JavaScript, Go, and Swift ast-grep SARIF evidence, corpus evidence, list-rules inventory, and per-rule parser validation",
+  "scope": "Rust, TypeScript/JavaScript, Go, Swift, and Ruby ast-grep SARIF evidence, corpus evidence, list-rules inventory, and per-rule parser validation",
   "version": 4
 }

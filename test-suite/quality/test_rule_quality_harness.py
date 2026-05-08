@@ -5,7 +5,7 @@ import contextlib
 import io
 import json
 import os
-import subprocess
+import subprocess  # nosec B404 - unit tests intentionally exercise subprocess paths.
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -17,7 +17,7 @@ import rule_quality_harness
 def load_artifact_result(artifact_dir: Path) -> Any:
     with (artifact_dir / "result.json").open(encoding="utf-8") as result_file:
         try:
-            return json.load(result_file)
+            return json.loads(result_file.read())
         except json.JSONDecodeError as exc:
             raise AssertionError(
                 f"artifact result is not valid JSON: {artifact_dir / 'result.json'}"
@@ -294,6 +294,23 @@ class AstGrepRulePackHelperTest(unittest.TestCase):
         self.assertEqual(
             specs["swift-rule-pack"]["expected_rule_ids"],
             ("swift.urlsession.task-no-resume",),
+        )
+
+    def test_ast_grep_rule_pack_specs_include_ruby_dumpable_rules(self) -> None:
+        specs = {
+            spec["label"]: spec
+            for spec in rule_quality_harness.AST_GREP_SARIF_CHECKS
+        }
+
+        self.assertIn("ruby-rule-pack", specs)
+        self.assertEqual(specs["ruby-rule-pack"]["module"], "ubs-ruby.sh")
+        self.assertIn(
+            "ruby.resource.thread-no-join",
+            specs["ruby-rule-pack"]["expected_rule_ids"],
+        )
+        self.assertIn(
+            "rb.rescue-exception",
+            specs["ruby-rule-pack"]["expected_rule_ids"],
         )
 
     def test_parses_machine_readable_list_rule_ids(self) -> None:

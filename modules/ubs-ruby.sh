@@ -20,7 +20,7 @@
 #   --rules DIR   (merge user ast-grep rules)
 #   --fail-on-warning, --skip, --only, --jobs, --ag-threads, --include-ext, --exclude
 #   --ci, --no-color, --list-rules, --ag-fixable-only, --ag-preview-fix
-#   --json-out, --sarif-out, --summary-json
+#   --json-out, --sarif-out, --summary-json, --dump-rules=DIR
 #   --only-rules=GLOB, --disable-rules=GLOB, --very-verbose
 #   CI-friendly timestamps, robust find, safe pipelines, auto parallel jobs
 # ═══════════════════════════════════════════════════════════════════════════
@@ -71,6 +71,7 @@ AG_PREVIEW_FIX=0
 SUMMARY_JSON=""
 SARIF_OUT=""
 JSON_OUT=""
+DUMP_RULES_DIR=""
 ONLY_RULES=""
 DISABLE_RULES=""
 
@@ -128,6 +129,7 @@ Options:
   --fail-on-warning        Exit non-zero on warnings or critical
   --rules=DIR              Additional ast-grep rules directory (merged)
   --list-rules             List enabled ast-grep rule IDs and exit
+  --dump-rules=DIR         Persist generated ast-grep rules to DIR for test validation
   --ag-fixable-only        Limit AST output to rules that provide fixes
   --ag-preview-fix         Preview ast-grep fixes (no writes) in diff form
   --no-bundler             Disable bundler-based extra analyzers
@@ -165,6 +167,7 @@ while [[ $# -gt 0 ]]; do
     --fail-on-warning) FAIL_ON_WARNING=1; shift;;
     --rules=*)    USER_RULE_DIR="${1#*=}"; shift;;
     --list-rules) LIST_RULES=1; shift;;
+    --dump-rules=*) DUMP_RULES_DIR="${1#*=}"; shift;;
     --ag-fixable-only) AG_FIXABLE_ONLY=1; shift;;
     --ag-preview-fix) AG_PREVIEW_FIX=1; shift;;
     --no-bundler) ENABLE_BUNDLER_TOOLS=0; shift;;
@@ -2135,12 +2138,7 @@ YAML
 id: rb.rescue-exception
 language: ruby
 rule:
-  pattern: |
-    begin
-      $A
-    rescue Exception => $e
-      $B
-    end
+  pattern: Exception
 severity: error
 message: "Rescuing Exception also catches system exits/interrupts; avoid"
 YAML
@@ -2148,12 +2146,10 @@ YAML
 id: rb.raise-e
 language: ruby
 rule:
-  pattern: |
-    begin
-      $A
-    rescue $E => $ex
-      raise $ex
-    end
+  pattern: raise $ERR
+constraints:
+  ERR:
+    regex: '^[a-z_][a-zA-Z0-9_]*$'
 severity: warning
 message: "Use 'raise' (without arg) to preserve original backtrace"
 YAML
@@ -2204,10 +2200,10 @@ id: rb.digest-weak
 language: ruby
 rule:
   any:
-    - pattern: Digest::MD5.hexdigest($$)
-    - pattern: Digest::SHA1.hexdigest($$)
-    - pattern: OpenSSL::Digest::MD5.new($$)
-    - pattern: OpenSSL::Digest::SHA1.new($$)
+    - pattern: Digest::MD5.hexdigest($ARG)
+    - pattern: Digest::SHA1.hexdigest($ARG)
+    - pattern: OpenSSL::Digest::MD5.new($ARG)
+    - pattern: OpenSSL::Digest::SHA1.new($ARG)
 severity: warning
 message: "Weak hash algorithm (MD5/SHA1); prefer SHA256/512"
 YAML
@@ -2216,8 +2212,8 @@ id: rb.random-insecure
 language: ruby
 rule:
   any:
-    - pattern: rand($$)
-    - pattern: Random.rand($$)
+    - pattern: rand($ARG)
+    - pattern: Random.rand($ARG)
 severity: info
 message: "rand/Random are not cryptographic; use SecureRandom for secrets/tokens"
 YAML
@@ -2236,8 +2232,8 @@ id: rb.send-dynamic
 language: ruby
 rule:
   any:
-    - pattern: $OBJ.send($NAME, $$)
-    - pattern: $OBJ.__send__($NAME, $$)
+    - pattern: $OBJ.send($NAME, $ARG)
+    - pattern: $OBJ.__send__($NAME, $ARG)
 severity: info
 message: "Dynamic dispatch via send; ensure $NAME is validated"
 YAML
@@ -2291,7 +2287,9 @@ YAML
 id: rb.file-open-no-block
 language: ruby
 rule:
-  pattern: File.open($$)
+  any:
+    - pattern: File.open($ARG)
+    - pattern: File.open($ARG, $MODE)
   not:
     inside:
       kind: block
@@ -2303,8 +2301,8 @@ id: rb.tempfile-no-block
 language: ruby
 rule:
   any:
-    - pattern: Tempfile.new($$)
-    - pattern: Dir.mktmpdir($$)
+    - pattern: Tempfile.new($ARG)
+    - pattern: Dir.mktmpdir($ARG)
   not:
     inside:
       kind: block
@@ -2316,7 +2314,7 @@ id: ruby.resource.thread-no-join
 language: ruby
 rule:
   all:
-    - pattern: $VAR = Thread.new($ARGS)
+    - pattern: $VAR = Thread.new { $BODY }
     - not:
         has:
           pattern: $VAR.join
@@ -2337,7 +2335,7 @@ id: rails.update-attributes
 language: ruby
 rule:
   any:
-    - pattern: $REC.update_attributes($$)
+    - pattern: $REC.update_attributes($ARG)
 severity: info
 message: "update_attributes is deprecated; prefer update with strong params."
 YAML
@@ -2387,8 +2385,18 @@ rule:
 severity: info
 message: "Ensure bounded retries with backoff."
 YAML
+  if [[ -n "$DUMP_RULES_DIR" ]]; then
+    mkdir -p "$DUMP_RULES_DIR"
+    cp -R "$AST_RULE_DIR"/. "$DUMP_RULES_DIR"/
+  fi
   # ── Done writing rules ────────────────────────────────────────────────────
 }
+
+list_generated_ast_rule_ids() {
+  local rules_dir="$1"
+  ( set +o pipefail; awk 'BEGIN{FS=":"}/^id:[[:space:]]*/{gsub(/^[[:space:]]*id:[[:space:]]*/,"");print;}' "$rules_dir"/*.yml 2>/dev/null || true ) | sort -u
+}
+
 filter_rules_by_glob(){
   [[ -z "${ONLY_RULES:-}" && -z "${DISABLE_RULES:-}" ]] && return 0
   shopt -s nullglob
@@ -2495,6 +2503,19 @@ run_category() {
 # ────────────────────────────────────────────────────────────────────────────
 # Init
 # ────────────────────────────────────────────────────────────────────────────
+if [[ "$LIST_RULES" -eq 1 ]]; then
+  QUIET=1
+  USE_COLOR=0
+  if ! check_ast_grep; then
+    echo "ERROR: --list-rules requires ast-grep." >&2
+    exit 2
+  fi
+  write_ast_rules || exit 2
+  filter_rules_by_glob || true
+  list_generated_ast_rule_ids "$AST_RULE_DIR"
+  exit 0
+fi
+
 maybe_clear
 
 if ! is_machine_format; then
@@ -2553,10 +2574,6 @@ if check_ast_grep; then
   say "${GREEN}${CHECK} ast-grep available (${AST_GREP_CMD[*]}) - full AST analysis enabled${RESET}"
   write_ast_rules || true
   filter_rules_by_glob || true
-  if [[ "$LIST_RULES" -eq 1 ]]; then
-    (grep -RHAn --include '*.yml' '^id:' "$AST_RULE_DIR" || true) | sed 's/.*id:\s*//' | sort -u
-    exit 0
-  fi
 else
   say "${YELLOW}${WARN} ast-grep unavailable - using regex fallback mode${RESET}"
 fi

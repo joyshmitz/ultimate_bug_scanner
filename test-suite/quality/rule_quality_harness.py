@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess  # nosec B404 - this harness intentionally runs repo-local UBS commands.
 import sys
+import tempfile
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -31,7 +32,7 @@ def default_runtime_root() -> str:
     if not base and Path("/data/tmp").is_dir():
         base = "/data/tmp"
     if not base:
-        base = "/tmp"
+        base = tempfile.gettempdir()
     return str(Path(base) / "ubs-rule-quality-variants")
 
 
@@ -916,6 +917,45 @@ AST_GREP_SARIF_CHECKS = (
         "corpus_fixture": "test-suite/swift",
         "expected_rule_ids": ("swift.urlsession.task-no-resume",),
     },
+    {
+        "label": "ruby-rule-pack",
+        "module": "ubs-ruby.sh",
+        "args": ("--format=sarif",),
+        "dump_args": ("--dump-rules={rules_dir}",),
+        "list_args": ("--list-rules",),
+        "fixture": "test-suite/ruby/ast_grep_rule_pack_coverage.rb",
+        "corpus_fixture": "test-suite/ruby",
+        "expected_rule_ids": (
+            "rails.constantize",
+            "rails.csrf-skip",
+            "rails.permit-bang",
+            "rails.update-attributes",
+            "rb.and-or",
+            "rb.bare-rescue",
+            "rb.digest-weak",
+            "rb.equal-literal",
+            "rb.eval-exec",
+            "rb.file-open-no-block",
+            "rb.float-eq",
+            "rb.http-verify-none",
+            "rb.json-parse",
+            "rb.marshal-load",
+            "rb.mutable-const",
+            "rb.nil-eq.eq",
+            "rb.nil-eq.neq",
+            "rb.open-pipe",
+            "rb.raise-e",
+            "rb.random-insecure",
+            "rb.rescue-exception",
+            "rb.retry",
+            "rb.send-dynamic",
+            "rb.sql-interp",
+            "rb.system-single-string",
+            "rb.tempfile-no-block",
+            "rb.yaml-unsafe",
+            "ruby.resource.thread-no-join",
+        ),
+    },
 )
 
 
@@ -1484,7 +1524,7 @@ def run_ast_grep_rule_pack_check(timeout: int, update_golden: bool) -> None:
     update_or_check_ast_grep_sarif_golden(
         {
             "version": 4,
-            "scope": "Rust, TypeScript/JavaScript, Go, and Swift ast-grep SARIF evidence, corpus evidence, list-rules inventory, and per-rule parser validation",
+            "scope": "Rust, TypeScript/JavaScript, Go, Swift, and Ruby ast-grep SARIF evidence, corpus evidence, list-rules inventory, and per-rule parser validation",
             "checks": checks,
             "corpus_checks": corpus_checks,
             "list_rule_validation": list_rule_validation,
