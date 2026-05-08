@@ -5039,7 +5039,7 @@ if [ "$rec_count" -gt 0 ]; then print_finding "warning" "$rec_count" "recover() 
 fi
 
 run_request_body_limit_checks() {
-  print_subheader "Unbounded request body ReadAll"
+  print_subheader "Unbounded request body ReadAll/JSON Decode"
   if ! command -v python3 >/dev/null 2>&1; then
     print_finding "info" 0 "python3 not available" "Install python3 to enable request body size-limit checks"
     return
@@ -5073,6 +5073,15 @@ SKIP_DIRS = {'.git', 'vendor', 'node_modules', '.cache', 'bin', 'build', 'dist'}
 READALL_BODY_RE = re.compile(
     r'\b(?:io|ioutil)\.ReadAll\s*\(\s*(?P<body>[A-Za-z_][A-Za-z0-9_]*\.Body)\s*\)'
 )
+JSON_DIRECT_BODY_RE = re.compile(
+    r'\bjson\.NewDecoder\s*\(\s*(?P<body>[A-Za-z_][A-Za-z0-9_]*\.Body)\s*\)'
+    r'\s*\.\s*Decode\s*\('
+)
+JSON_DECODER_ASSIGN_RE = re.compile(
+    r'\b(?P<decoder>[A-Za-z_][A-Za-z0-9_]*)\s*:?=\s*'
+    r'json\.NewDecoder\s*\(\s*(?P<body>[A-Za-z_][A-Za-z0-9_]*\.Body)\s*\)'
+)
+JSON_DECODE_CALL_RE = re.compile(r'\b(?P<decoder>[A-Za-z_][A-Za-z0-9_]*)\.Decode\s*\(')
 
 def should_skip(path: Path) -> bool:
     return any(part in SKIP_DIRS for part in path.parts)
@@ -5143,27 +5152,56 @@ def body_is_limited(context: str, body: str) -> bool:
         or re.search(rf'\b(?:io\.)?LimitReader\s*\(\s*{escaped}\b', context)
     )
 
+def add_issue(issues, seen, path: Path, idx: int, raw: str):
+    key = (relpath(path), idx + 1)
+    if key in seen:
+        return
+    seen.add(key)
+    issues.append((relpath(path), idx + 1, raw.strip().replace('\t', ' ')))
+
 def analyze(path: Path, issues):
     try:
         lines = path.read_text(encoding='utf-8', errors='ignore').splitlines()
     except OSError:
         return
     seen = set()
+    decoder_bodies = {}
     for idx, raw in enumerate(lines):
         if has_ignore(lines, idx):
             continue
         stripped = strip_line_comments(raw).strip()
-        match = READALL_BODY_RE.search(stripped)
-        if not stripped or not match:
+        if not stripped:
             continue
+        if stripped.startswith('func '):
+            decoder_bodies.clear()
+
+        assignment = JSON_DECODER_ASSIGN_RE.search(stripped)
+        if assignment:
+            decoder_bodies[assignment.group('decoder')] = (
+                assignment.group('body'),
+                idx,
+                raw,
+            )
+
+        for match in (READALL_BODY_RE.search(stripped), JSON_DIRECT_BODY_RE.search(stripped)):
+            if not match:
+                continue
+            context = context_around(lines, idx)
+            if body_is_limited(context, match.group('body')):
+                continue
+            add_issue(issues, seen, path, idx, raw)
+
+        decode_call = JSON_DECODE_CALL_RE.search(stripped)
+        if not decode_call:
+            continue
+        decoder = decode_call.group('decoder')
+        if decoder not in decoder_bodies:
+            continue
+        body, assignment_idx, assignment_raw = decoder_bodies[decoder]
         context = context_around(lines, idx)
-        if body_is_limited(context, match.group('body')):
+        if body_is_limited(context, body):
             continue
-        key = (relpath(path), idx + 1)
-        if key in seen:
-            continue
-        seen.add(key)
-        issues.append((relpath(path), idx + 1, raw.strip().replace('\t', ' ')))
+        add_issue(issues, seen, path, assignment_idx, assignment_raw)
 
 issues = []
 for file_path in iter_files(ROOT):

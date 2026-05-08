@@ -5675,7 +5675,7 @@
     },
     {
       "id": "golang-request-body-limit-buggy",
-      "description": "Go handlers should not ReadAll request bodies before applying http.MaxBytesReader or io.LimitReader.",
+      "description": "Go handlers should not ReadAll or JSON-decode request bodies before applying http.MaxBytesReader or io.LimitReader.",
       "path": "test-suite/golang/security/request_body_limit_buggy.go",
       "language": "golang",
       "tags": [
@@ -5687,6 +5687,7 @@
       "args": [
         "--only=golang",
         "--fail-on-warning",
+        "--verbose",
         "--skip=1,2,3,4,5,6,7,9,10,11,12,13,14,15,16,17,18,19,20,21,22"
       ],
       "expect": {
@@ -5699,13 +5700,15 @@
         "require_substrings": [
           "Request body read without explicit byte limit",
           "io.ReadAll(r.Body)",
-          "ioutil.ReadAll(req.Body)"
+          "ioutil.ReadAll(req.Body)",
+          "json.NewDecoder(r.Body).Decode(&payload)",
+          "decoder := json.NewDecoder(req.Body)"
         ]
       }
     },
     {
       "id": "golang-request-body-limit-clean",
-      "description": "Go handlers that bound request bodies before ReadAll should stay clean.",
+      "description": "Go handlers that bound request bodies before ReadAll or JSON decode should stay clean.",
       "path": "test-suite/golang/security/request_body_limit_clean.go",
       "language": "golang",
       "tags": [
@@ -5717,6 +5720,7 @@
       "args": [
         "--only=golang",
         "--fail-on-warning",
+        "--verbose",
         "--skip=1,2,3,4,5,6,7,9,10,11,12,13,14,15,16,17,18,19,20,21,22"
       ],
       "expect": {
