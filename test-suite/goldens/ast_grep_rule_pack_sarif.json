@@ -229,6 +229,91 @@
         "ruby.resource.thread-no-join"
       ],
       "sarif_runs": 1
+    },
+    {
+      "args": [
+        "--format=sarif",
+        "--no-build"
+      ],
+      "driver_rule_count": 0,
+      "driver_rule_ids": [],
+      "expected_rule_ids": [
+        "java.bigdecimal-equals",
+        "java.closeable-no-twr",
+        "java.executors-cached",
+        "java.hardcoded-secrets",
+        "java.inputstreamreader-no-charset",
+        "java.insecure-deserialization",
+        "java.insecure-random",
+        "java.insecure-ssl",
+        "java.legacy-collections",
+        "java.logging-concat",
+        "java.notify",
+        "java.optional-get",
+        "java.optional-isPresent-then-get",
+        "java.optional-isempty-negation",
+        "java.optional-orElse-null",
+        "java.parallel-foreach-side-effects",
+        "java.paths-get-plus",
+        "java.plain-http",
+        "java.print-stacktrace",
+        "java.reflection",
+        "java.regex-redos",
+        "java.resource.executor-no-shutdown",
+        "java.resource.jdbc-no-close",
+        "java.resource.resultset-no-close",
+        "java.resource.statement-no-close",
+        "java.resource.thread-no-join",
+        "java.string-bytes-no-charset",
+        "java.string-eq-operator",
+        "java.synchronized-this",
+        "java.system-println",
+        "java.thread-sleep-in-synchronized",
+        "java.thread-start",
+        "java.virtual-threads",
+        "java.weak-hash"
+      ],
+      "fixture": "test-suite/java/ast_grep_rule_pack_coverage.java",
+      "label": "java-rule-pack",
+      "module": "ubs-java.sh",
+      "result_count": 48,
+      "result_rule_ids": [
+        "java.bigdecimal-equals",
+        "java.closeable-no-twr",
+        "java.executors-cached",
+        "java.hardcoded-secrets",
+        "java.inputstreamreader-no-charset",
+        "java.insecure-deserialization",
+        "java.insecure-random",
+        "java.insecure-ssl",
+        "java.legacy-collections",
+        "java.logging-concat",
+        "java.notify",
+        "java.optional-get",
+        "java.optional-isPresent-then-get",
+        "java.optional-isempty-negation",
+        "java.optional-orElse-null",
+        "java.parallel-foreach-side-effects",
+        "java.paths-get-plus",
+        "java.plain-http",
+        "java.print-stacktrace",
+        "java.reflection",
+        "java.regex-redos",
+        "java.resource.executor-no-shutdown",
+        "java.resource.jdbc-no-close",
+        "java.resource.resultset-no-close",
+        "java.resource.statement-no-close",
+        "java.resource.thread-no-join",
+        "java.string-bytes-no-charset",
+        "java.string-eq-operator",
+        "java.synchronized-this",
+        "java.system-println",
+        "java.thread-sleep-in-synchronized",
+        "java.thread-start",
+        "java.virtual-threads",
+        "java.weak-hash"
+      ],
+      "sarif_runs": 1
     }
   ],
   "corpus_checks": [
@@ -553,6 +638,91 @@
         "ruby.resource.thread-no-join"
       ],
       "sarif_runs": 1
+    },
+    {
+      "args": [
+        "--format=sarif",
+        "--no-build"
+      ],
+      "driver_rule_count": 0,
+      "driver_rule_ids": [],
+      "expected_rule_ids": [
+        "java.bigdecimal-equals",
+        "java.closeable-no-twr",
+        "java.executors-cached",
+        "java.hardcoded-secrets",
+        "java.inputstreamreader-no-charset",
+        "java.insecure-deserialization",
+        "java.insecure-random",
+        "java.insecure-ssl",
+        "java.legacy-collections",
+        "java.logging-concat",
+        "java.notify",
+        "java.optional-get",
+        "java.optional-isPresent-then-get",
+        "java.optional-isempty-negation",
+        "java.optional-orElse-null",
+        "java.parallel-foreach-side-effects",
+        "java.paths-get-plus",
+        "java.plain-http",
+        "java.print-stacktrace",
+        "java.reflection",
+        "java.regex-redos",
+        "java.resource.executor-no-shutdown",
+        "java.resource.jdbc-no-close",
+        "java.resource.resultset-no-close",
+        "java.resource.statement-no-close",
+        "java.resource.thread-no-join",
+        "java.string-bytes-no-charset",
+        "java.string-eq-operator",
+        "java.synchronized-this",
+        "java.system-println",
+        "java.thread-sleep-in-synchronized",
+        "java.thread-start",
+        "java.virtual-threads",
+        "java.weak-hash"
+      ],
+      "fixture": "test-suite/java",
+      "label": "java-rule-pack",
+      "module": "ubs-java.sh",
+      "result_count": 77,
+      "result_rule_ids": [
+        "java.bigdecimal-equals",
+        "java.closeable-no-twr",
+        "java.executors-cached",
+        "java.hardcoded-secrets",
+        "java.inputstreamreader-no-charset",
+        "java.insecure-deserialization",
+        "java.insecure-random",
+        "java.insecure-ssl",
+        "java.legacy-collections",
+        "java.logging-concat",
+        "java.notify",
+        "java.optional-get",
+        "java.optional-isPresent-then-get",
+        "java.optional-isempty-negation",
+        "java.optional-orElse-null",
+        "java.parallel-foreach-side-effects",
+        "java.paths-get-plus",
+        "java.plain-http",
+        "java.print-stacktrace",
+        "java.reflection",
+        "java.regex-redos",
+        "java.resource.executor-no-shutdown",
+        "java.resource.jdbc-no-close",
+        "java.resource.resultset-no-close",
+        "java.resource.statement-no-close",
+        "java.resource.thread-no-join",
+        "java.string-bytes-no-charset",
+        "java.string-eq-operator",
+        "java.synchronized-this",
+        "java.system-println",
+        "java.thread-sleep-in-synchronized",
+        "java.thread-start",
+        "java.virtual-threads",
+        "java.weak-hash"
+      ],
+      "sarif_runs": 1
     }
   ],
   "list_rule_validation": [
@@ -812,6 +982,50 @@
         "rb.tempfile-no-block",
         "rb.yaml-unsafe",
         "ruby.resource.thread-no-join"
+      ]
+    },
+    {
+      "label": "java-rule-pack",
+      "list_args": [
+        "--list-rules"
+      ],
+      "module": "ubs-java.sh",
+      "rule_count": 34,
+      "rule_ids": [
+        "java.bigdecimal-equals",
+        "java.closeable-no-twr",
+        "java.executors-cached",
+        "java.hardcoded-secrets",
+        "java.inputstreamreader-no-charset",
+        "java.insecure-deserialization",
+        "java.insecure-random",
+        "java.insecure-ssl",
+        "java.legacy-collections",
+        "java.logging-concat",
+        "java.notify",
+        "java.optional-get",
+        "java.optional-isPresent-then-get",
+        "java.optional-isempty-negation",
+        "java.optional-orElse-null",
+        "java.parallel-foreach-side-effects",
+        "java.paths-get-plus",
+        "java.plain-http",
+        "java.print-stacktrace",
+        "java.reflection",
+        "java.regex-redos",
+        "java.resource.executor-no-shutdown",
+        "java.resource.jdbc-no-close",
+        "java.resource.resultset-no-close",
+        "java.resource.statement-no-close",
+        "java.resource.thread-no-join",
+        "java.string-bytes-no-charset",
+        "java.string-eq-operator",
+        "java.synchronized-this",
+        "java.system-println",
+        "java.thread-sleep-in-synchronized",
+        "java.thread-start",
+        "java.virtual-threads",
+        "java.weak-hash"
       ]
     }
   ],
@@ -2113,6 +2327,222 @@
           "match_count": 1
         }
       ]
+    },
+    {
+      "dump_args": [
+        "--dump-rules={rules_dir}",
+        "--no-build"
+      ],
+      "fixture": "test-suite/java/ast_grep_rule_pack_coverage.java",
+      "label": "java-rule-pack",
+      "module": "ubs-java.sh",
+      "rule_count": 34,
+      "rules": [
+        {
+          "file": "bigdecimal-equals.yml",
+          "id": "java.bigdecimal-equals",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "closeable-no-twr.yml",
+          "id": "java.closeable-no-twr",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "deserialization.yml",
+          "id": "java.insecure-deserialization",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "executors-cached.yml",
+          "id": "java.executors-cached",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "hardcoded-secrets.yml",
+          "id": "java.hardcoded-secrets",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "inputstreamreader-no-charset.yml",
+          "id": "java.inputstreamreader-no-charset",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "insecure-random.yml",
+          "id": "java.insecure-random",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "java-resource-executor.yml",
+          "id": "java.resource.executor-no-shutdown",
+          "language": "java",
+          "match_count": 2
+        },
+        {
+          "file": "java-resource-jdbc.yml",
+          "id": "java.resource.jdbc-no-close",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "java-resource-resultset.yml",
+          "id": "java.resource.resultset-no-close",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "java-resource-statement.yml",
+          "id": "java.resource.statement-no-close",
+          "language": "java",
+          "match_count": 3
+        },
+        {
+          "file": "java-resource-thread.yml",
+          "id": "java.resource.thread-no-join",
+          "language": "java",
+          "match_count": 2
+        },
+        {
+          "file": "legacy-collections.yml",
+          "id": "java.legacy-collections",
+          "language": "java",
+          "match_count": 2
+        },
+        {
+          "file": "logging-concat.yml",
+          "id": "java.logging-concat",
+          "language": "java",
+          "match_count": 8
+        },
+        {
+          "file": "notify.yml",
+          "id": "java.notify",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "optional-get.yml",
+          "id": "java.optional-get",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "optional-isEmpty-negation.yml",
+          "id": "java.optional-isempty-negation",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "optional-isPresent-then-get.yml",
+          "id": "java.optional-isPresent-then-get",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "optional-orElse-null.yml",
+          "id": "java.optional-orElse-null",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "parallel-foreach.yml",
+          "id": "java.parallel-foreach-side-effects",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "paths-get-plus.yml",
+          "id": "java.paths-get-plus",
+          "language": "java",
+          "match_count": 2
+        },
+        {
+          "file": "plain-http.yml",
+          "id": "java.plain-http",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "printStackTrace.yml",
+          "id": "java.print-stacktrace",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "println.yml",
+          "id": "java.system-println",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "reflection.yml",
+          "id": "java.reflection",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "regex-nested-quant.yml",
+          "id": "java.regex-redos",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "string-eq-operator.yml",
+          "id": "java.string-eq-operator",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "string-no-charset.yml",
+          "id": "java.string-bytes-no-charset",
+          "language": "java",
+          "match_count": 2
+        },
+        {
+          "file": "synchronized-this.yml",
+          "id": "java.synchronized-this",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "thread-sleep-in-sync.yml",
+          "id": "java.thread-sleep-in-synchronized",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "thread-start.yml",
+          "id": "java.thread-start",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "trust-all-cert.yml",
+          "id": "java.insecure-ssl",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "virtual-threads.yml",
+          "id": "java.virtual-threads",
+          "language": "java",
+          "match_count": 1
+        },
+        {
+          "file": "weak-hash.yml",
+          "id": "java.weak-hash",
+          "language": "java",
+          "match_count": 1
+        }
+      ]
     }
   ],
   "rule_inventory_coverage": [
@@ -2372,8 +2802,52 @@
       "label": "ruby-rule-pack",
       "uncovered_generated_rule_count": 0,
       "uncovered_generated_rule_ids": []
+    },
+    {
+      "corpus_result_rule_ids_without_generated_rule": [],
+      "covered_generated_rule_count": 34,
+      "covered_generated_rule_ids": [
+        "java.bigdecimal-equals",
+        "java.closeable-no-twr",
+        "java.executors-cached",
+        "java.hardcoded-secrets",
+        "java.inputstreamreader-no-charset",
+        "java.insecure-deserialization",
+        "java.insecure-random",
+        "java.insecure-ssl",
+        "java.legacy-collections",
+        "java.logging-concat",
+        "java.notify",
+        "java.optional-get",
+        "java.optional-isPresent-then-get",
+        "java.optional-isempty-negation",
+        "java.optional-orElse-null",
+        "java.parallel-foreach-side-effects",
+        "java.paths-get-plus",
+        "java.plain-http",
+        "java.print-stacktrace",
+        "java.reflection",
+        "java.regex-redos",
+        "java.resource.executor-no-shutdown",
+        "java.resource.jdbc-no-close",
+        "java.resource.resultset-no-close",
+        "java.resource.statement-no-close",
+        "java.resource.thread-no-join",
+        "java.string-bytes-no-charset",
+        "java.string-eq-operator",
+        "java.synchronized-this",
+        "java.system-println",
+        "java.thread-sleep-in-synchronized",
+        "java.thread-start",
+        "java.virtual-threads",
+        "java.weak-hash"
+      ],
+      "generated_rule_count": 34,
+      "label": "java-rule-pack",
+      "uncovered_generated_rule_count": 0,
+      "uncovered_generated_rule_ids": []
     }
   ],
-  "scope": "Rust, TypeScript/JavaScript, Go, Swift, and Ruby ast-grep SARIF evidence, corpus evidence, list-rules inventory, and per-rule parser validation",
+  "scope": "Rust, TypeScript/JavaScript, Go, Swift, Ruby, and Java ast-grep SARIF evidence, corpus evidence, list-rules inventory, and per-rule parser validation",
   "version": 4
 }

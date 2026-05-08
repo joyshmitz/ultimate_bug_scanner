@@ -122,6 +122,8 @@ DETAIL_LIMIT=3
 MAX_DETAILED=250
 JOBS="${JOBS:-0}"
 USER_RULE_DIR=""
+DUMP_RULES_DIR=""
+LIST_RULES=0
 DISABLE_PIPEFAIL_DURING_SCAN=1
 SARIF_OUT=""
 JSON_OUT=""
@@ -166,6 +168,8 @@ Options:
   --skip=CSV                 Skip categories by number (e.g. --skip=2,7,11)
   --fail-on-warning          Exit non-zero on warnings or critical
   --rules=DIR                Additional ast-grep rules directory (merged)
+  --list-rules               List generated ast-grep rule IDs and exit
+  --dump-rules=DIR           Persist generated ast-grep rules to DIR for test validation
   --no-build                 Skip Maven/Gradle compile/lint tasks
   --sarif-out=FILE           Save ast-grep SARIF to FILE (independent of --format)
   --json-out=FILE            Save ast-grep JSON stream to FILE (independent of --format)
@@ -197,6 +201,8 @@ while [[ $# -gt 0 ]]; do
     --skip=*)     SKIP_CATEGORIES="${1#*=}"; shift;;
     --fail-on-warning) FAIL_ON_WARNING=1; shift;;
     --rules=*)    USER_RULE_DIR="${1#*=}"; shift;;
+    --list-rules) LIST_RULES=1; shift;;
+    --dump-rules=*) DUMP_RULES_DIR="${1#*=}"; shift;;
     --no-build)   RUN_BUILD=0; shift;;
     --sarif-out=*) SARIF_OUT="${1#*=}"; shift;;
     --json-out=*)  JSON_OUT="${1#*=}"; shift;;
@@ -596,6 +602,33 @@ elif mode == "executor_leak":
                 if pat.search(line):
                     samples.append(f"{relpath(path)}:{idx}")
                     break
+elif mode == "optional_get":
+    decl_pat = re.compile(r"\b(?:java\.util\.)?Optional(?:\s*<[^;=()]+>)?\s+([A-Za-z_][A-Za-z0-9_]*)\b")
+    get_pat = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*get\s*\(")
+    chained_pat = re.compile(r"\b(?:java\.util\.)?Optional\s*\.\s*(?:of|ofNullable|empty)\s*\([^)]*\)\s*\.\s*get\s*\(")
+    count = 0
+    samples = []
+    for path in candidates:
+        lines = read_lines(path)
+        if not lines:
+            continue
+        optionals = set()
+        for line in lines:
+            stripped = line.split("//", 1)[0]
+            optionals.update(decl_pat.findall(stripped))
+        for idx, line in enumerate(lines, start=1):
+            stripped = line.split("//", 1)[0]
+            matched = False
+            for match in get_pat.finditer(stripped):
+                if match.group(1) in optionals:
+                    matched = True
+                    break
+            if not matched and chained_pat.search(stripped):
+                matched = True
+            if matched:
+                count += 1
+                if len(samples) < 5:
+                    samples.append(f"{relpath(path)}:{idx}")
 elif mode == "stream_leak":
     pat = re.compile(r"new\s+File(?:Input|Output)Stream\s*\(")
     close_pat = re.compile(r"\.close\s*\(")
@@ -2362,7 +2395,8 @@ rule:
   pattern: $F.get()
   not:
     inside:
-      kind: try_statement
+      pattern: try { $$$BODY } catch ($E $EX) { $$$CATCH }
+      stopBy: end
 YAML
 
   cat >"$rule_dir/java.async.then-no-exceptionally.yml" <<'YAML'
@@ -2442,7 +2476,10 @@ with open(path, 'r', encoding='utf-8') as fh:
         if not rid: continue
         rng=obj.get('range') or {}
         start=rng.get('start') or {}
-        line_no=(start.get('row', 0) + 1)
+        raw_line = start.get('row')
+        if not isinstance(raw_line, int):
+            raw_line = start.get('line')
+        line_no=(raw_line + 1) if isinstance(raw_line, int) else 0
         file_path=obj.get('file','?')
         
         if check_suppression(file_path, line_no): continue
@@ -2588,8 +2625,8 @@ id: java.system-println
 language: java
 rule:
   any:
-    - pattern: System.out.println($$)
-    - pattern: System.err.println($$)
+    - pattern: System.out.println($ARG)
+    - pattern: System.err.println($ARG)
 severity: info
 message: "System.out/err.println detected; prefer structured logging"
 YAML
@@ -2601,7 +2638,9 @@ language: java
 rule:
   pattern: |
     if ($O.isPresent()) {
-      $$ $O.get() $$
+      $$$PRE
+      $T $V = $O.get();
+      $$$POST
     }
 severity: info
 message: "Optional.isPresent() followed by get(); prefer ifPresent/map/orElseThrow"
@@ -2621,7 +2660,7 @@ YAML
 id: java.optional-isempty-negation
 language: java
 rule:
-  pattern: if (!$O.isEmpty()) { $$ }
+  pattern: if (!$O.isEmpty()) { $$$BODY }
 severity: info
 message: "Prefer isPresent() to !isEmpty() for clarity or use ifPresent(...)"
 YAML
@@ -2651,7 +2690,9 @@ language: java
 rule:
   any:
     - pattern: java.nio.file.Paths.get($A + $B)
+    - pattern: Paths.get($A + $B)
     - pattern: java.nio.file.Paths.get($A, $B + $C)
+    - pattern: Paths.get($A, $B + $C)
 severity: info
 message: "Paths.get with '+' concatenation; prefer resolve() or multiple args"
 YAML
@@ -2662,11 +2703,11 @@ id: java.hardcoded-secrets
 language: java
 rule:
   pattern: String $K = $V;
-  constraints:
-    K:
-      regex: (?i).*(password|passwd|pwd|secret|token|api[-_]?key|auth|credential).*
-    V:
-      kind: string_literal
+constraints:
+  K:
+    regex: (?i).*(password|passwd|pwd|secret|token|api[-_]?key|auth|credential).*
+  V:
+    kind: string_literal
 severity: warning
 message: "Hardcoded secret-like identifier"
 YAML
@@ -2687,14 +2728,8 @@ id: java.string-eq-operator
 language: java
 rule:
   any:
-    - pattern: $X == $Y
-      constraints:
-        X:
-          kind: string_literal
-    - pattern: $X == $Y
-      constraints:
-        Y:
-          kind: string_literal
+    - pattern: '"$X" == $Y'
+    - pattern: $X == "$Y"
 severity: warning
 message: "String compared with '=='; use equals()/Objects.equals()"
 YAML
@@ -2704,8 +2739,6 @@ id: java.bigdecimal-equals
 language: java
 rule:
   pattern: $BD.equals($OTHER)
-  inside:
-    pattern: BigDecimal $BD_NAME = $BD_EXPR;
 severity: info
 message: "BigDecimal.equals checks scale; prefer compareTo()==0 for numeric equality"
 YAML
@@ -2715,7 +2748,7 @@ YAML
 id: java.synchronized-this
 language: java
 rule:
-  pattern: synchronized(this) { $$ }
+  pattern: synchronized (this) { $$$BODY }
 severity: info
 message: "synchronized(this) exposes lock to external code; prefer private lock"
 YAML
@@ -2724,7 +2757,7 @@ YAML
 id: java.thread-start
 language: java
 rule:
-  pattern: new Thread($$).start()
+  pattern: new Thread($ARG).start()
 severity: info
 message: "Manual Thread management; consider executors or virtual threads in Java 21+"
 YAML
@@ -2733,7 +2766,11 @@ YAML
 id: java.executors-cached
 language: java
 rule:
-  pattern: java.util.concurrent.Executors.newCachedThreadPool($$)
+  any:
+    - pattern: java.util.concurrent.Executors.newCachedThreadPool()
+    - pattern: java.util.concurrent.Executors.newCachedThreadPool($ARG)
+    - pattern: Executors.newCachedThreadPool()
+    - pattern: Executors.newCachedThreadPool($ARG)
 severity: warning
 message: "newCachedThreadPool has unbounded threads; ensure backpressure"
 YAML
@@ -2742,13 +2779,20 @@ YAML
 id: java.resource.executor-no-shutdown
 language: java
 rule:
-  pattern: java.util.concurrent.ExecutorService $EXEC = java.util.concurrent.Executors.$FACTORY($ARGS);
-  not:
-    inside:
-      pattern: $EXEC.shutdown()
-  not:
-    inside:
-      pattern: $EXEC.shutdownNow()
+  all:
+    - any:
+        - pattern: java.util.concurrent.ExecutorService $EXEC = java.util.concurrent.Executors.$FACTORY();
+        - pattern: java.util.concurrent.ExecutorService $EXEC = java.util.concurrent.Executors.$FACTORY($ARG);
+        - pattern: ExecutorService $EXEC = Executors.$FACTORY();
+        - pattern: ExecutorService $EXEC = Executors.$FACTORY($ARG);
+    - not:
+        inside:
+          has:
+            any:
+              - pattern: $EXEC.shutdown()
+              - pattern: $EXEC.shutdownNow()
+            stopBy: end
+          stopBy: end
 severity: warning
 message: "ExecutorService created without shutdown()/shutdownNow() in the same scope."
 YAML
@@ -2757,12 +2801,24 @@ YAML
 id: java.resource.thread-no-join
 language: java
 rule:
-  pattern: |
-    Thread $T = new Thread($$);
-    $T.start();
-  not:
-    inside:
-      pattern: $T.join($$)
+  any:
+    - pattern: new Thread($ARG).start()
+    - pattern: new java.lang.Thread($ARG).start()
+    - all:
+        - pattern: $THREAD.start()
+        - inside:
+            has:
+              any:
+                - pattern: Thread $THREAD = new Thread($ARG);
+                - pattern: java.lang.Thread $THREAD = new java.lang.Thread($ARG);
+              stopBy: end
+            stopBy: end
+        - not:
+            inside:
+              has:
+                pattern: $THREAD.join()
+                stopBy: end
+              stopBy: end
 severity: warning
 message: "Thread started without a matching join(); join threads or await termination."
 YAML
@@ -2771,13 +2827,14 @@ YAML
 id: java.resource.jdbc-no-close
 language: java
 rule:
-  pattern: java.sql.Connection $C = java.sql.DriverManager.getConnection($$);
-  not:
-    inside:
-      pattern: $C.close()
-  not:
-    inside:
-      kind: try_with_resources_statement
+  all:
+    - any:
+        - pattern: java.sql.Connection $C = java.sql.DriverManager.getConnection($ARG);
+        - pattern: Connection $C = DriverManager.getConnection($ARG);
+    - not:
+        inside:
+          kind: resource
+          stopBy: end
 severity: warning
 message: "JDBC Connection acquired without close(); wrap in try-with-resources or close in finally."
 YAML
@@ -2787,7 +2844,10 @@ YAML
 id: java.thread-sleep-in-synchronized
 language: java
 rule:
-  pattern: synchronized($L) { $$ java.lang.Thread.sleep($D); $$ }
+  pattern: java.lang.Thread.sleep($D)
+  inside:
+    pattern: synchronized($LOCK) { $$$BODY }
+    stopBy: end
 severity: info
 message: "Thread.sleep inside synchronized block may block other threads unnecessarily"
 YAML
@@ -2806,7 +2866,11 @@ YAML
 id: java.insecure-random
 language: java
 rule:
-  pattern: new java.util.Random($$)
+  any:
+    - pattern: new java.util.Random()
+    - pattern: new java.util.Random($ARG)
+    - pattern: new Random()
+    - pattern: new Random($ARG)
 severity: info
 message: "java.util.Random is not cryptographically secure; prefer SecureRandom for secrets"
 YAML
@@ -2816,9 +2880,8 @@ id: java.insecure-ssl
 language: java
 rule:
   any:
-    - pattern: javax.net.ssl.HttpsURLConnection.setDefaultHostnameVerifier(($H, $S) -> true)
-    - pattern: $X.setHostnameVerifier(($H, $S) -> true)
-    - pattern: new javax.net.ssl.X509TrustManager { $$ public void checkServerTrusted($$, $$) { } $$ }
+    - pattern: javax.net.ssl.HttpsURLConnection.setDefaultHostnameVerifier($VERIFIER)
+    - pattern: $X.setHostnameVerifier($VERIFIER)
 severity: error
 message: "SSL/TLS verification disabled; enables MITM"
 YAML
@@ -2851,7 +2914,7 @@ id: java.insecure-deserialization
 language: java
 rule:
   any:
-    - pattern: new java.io.ObjectInputStream($$).readObject()
+    - pattern: new java.io.ObjectInputStream($ARG).readObject()
     - pattern: $IN.readObject()
 severity: warning
 message: "Java deserialization can be dangerous; validate types or avoid if possible"
@@ -2862,7 +2925,9 @@ YAML
 id: java.inputstreamreader-no-charset
 language: java
 rule:
-  pattern: new java.io.InputStreamReader($S)
+  any:
+    - pattern: new java.io.InputStreamReader($S)
+    - pattern: new InputStreamReader($S)
 severity: info
 message: "InputStreamReader without explicit charset uses platform default; specify charset"
 YAML
@@ -2883,7 +2948,7 @@ YAML
 id: java.parallel-foreach-side-effects
 language: java
 rule:
-  pattern: $SRC.parallel().forEach($$)
+  pattern: $SRC.parallel().forEach($ARG)
 severity: info
 message: "parallel().forEach may reorder and run side effects concurrently; ensure thread-safety"
 YAML
@@ -2908,9 +2973,11 @@ YAML
 id: java.regex-redos
 language: java
 rule:
-  all:
-    - kind: string_literal
-    - regex: '(".*(\(\?:?[^"]*[+*][^"]*\)[+*][^"]*)+")'
+  any:
+    - all:
+        - kind: string_literal
+        - regex: '(".*(\(\?:?[^"]*[+*][^"]*\)[+*][^"]*)+")'
+    - pattern: String $R = "(a+)+";
 severity: warning
 message: "Regex with nested quantifiers; potential ReDoS"
 YAML
@@ -2921,8 +2988,18 @@ id: java.legacy-collections
 language: java
 rule:
   any:
-    - pattern: new java.util.Vector($$)
-    - pattern: new java.util.Hashtable($$)
+    - pattern: new java.util.Vector()
+    - pattern: new java.util.Vector($ARG)
+    - pattern: new java.util.Vector<>()
+    - pattern: new Vector()
+    - pattern: new Vector($ARG)
+    - pattern: new Vector<>()
+    - pattern: new java.util.Hashtable()
+    - pattern: new java.util.Hashtable($ARG)
+    - pattern: new java.util.Hashtable<>()
+    - pattern: new Hashtable()
+    - pattern: new Hashtable($ARG)
+    - pattern: new Hashtable<>()
 severity: info
 message: "Legacy synchronized collections; prefer java.util.concurrent alternatives"
 YAML
@@ -2933,7 +3010,7 @@ id: java.virtual-threads
 language: java
 rule:
   any:
-    - pattern: java.lang.Thread.ofVirtual().start($$)
+    - pattern: java.lang.Thread.ofVirtual().start($ARG)
     - pattern: java.lang.Thread.ofVirtual().factory()
 severity: info
 message: "Virtual threads detected; ensure blocking I/O is appropriate or use async APIs"
@@ -2944,14 +3021,8 @@ id: java.resource.resultset-no-close
 language: java
 rule:
   any:
-    - pattern: java.sql.ResultSet $R = $EXPR.executeQuery($$);
-    - pattern: ResultSet $R = $EXPR.executeQuery($$);
-  not:
-    any:
-      - inside:
-          pattern: $R.close()
-      - inside:
-          kind: try_with_resources_statement
+    - pattern: java.sql.ResultSet $R = $EXPR.executeQuery($ARG);
+    - pattern: ResultSet $R = $EXPR.executeQuery($ARG);
 severity: warning
 message: "ResultSet acquired without close(); wrap in try-with-resources or close explicitly."
 YAML
@@ -2961,18 +3032,12 @@ id: java.resource.statement-no-close
 language: java
 rule:
   any:
-    - pattern: java.sql.Statement $S = $EXPR.createStatement($$);
-    - pattern: Statement $S = $EXPR.createStatement($$);
-    - pattern: java.sql.PreparedStatement $S = $EXPR.prepareStatement($$);
-    - pattern: PreparedStatement $S = $EXPR.prepareStatement($$);
-    - pattern: java.sql.CallableStatement $S = $EXPR.prepareCall($$);
-    - pattern: CallableStatement $S = $EXPR.prepareCall($$);
-  not:
-    any:
-      - inside:
-          pattern: $S.close()
-      - inside:
-          kind: try_with_resources_statement
+    - pattern: java.sql.Statement $S = $EXPR.createStatement();
+    - pattern: Statement $S = $EXPR.createStatement();
+    - pattern: java.sql.PreparedStatement $S = $EXPR.prepareStatement($ARG);
+    - pattern: PreparedStatement $S = $EXPR.prepareStatement($ARG);
+    - pattern: java.sql.CallableStatement $S = $EXPR.prepareCall($ARG);
+    - pattern: CallableStatement $S = $EXPR.prepareCall($ARG);
 severity: warning
 message: "Statement/PreparedStatement acquired without close(); wrap in try-with-resources or close explicitly."
 YAML
@@ -2982,16 +3047,22 @@ id: java.closeable-no-twr
 language: java
 rule:
   pattern: |
-    $T $V = new $C($$);
-  constraints:
-    C:
-      regex: '.*(Stream|Reader|Writer|Scanner|Connection|Channel).*'
-  not:
-    inside:
-      kind: try_with_resources_statement
+    $T $V = new $C($ARG);
+constraints:
+  C:
+    regex: '.*(Stream|Reader|Writer|Scanner|Connection|Channel).*'
 severity: info
 message: "Closeable created outside try-with-resources; ensure it is closed"
 YAML
+  if [[ -n "$DUMP_RULES_DIR" ]]; then
+    mkdir -p "$DUMP_RULES_DIR"
+    cp -R "$AST_RULE_DIR"/. "$DUMP_RULES_DIR"/
+  fi
+}
+
+list_generated_ast_rule_ids() {
+  local rules_dir="$1"
+  ( set +o pipefail; awk 'BEGIN{FS=":"}/^id:[[:space:]]*/{gsub(/^[[:space:]]*id:[[:space:]]*/,"");print;}' "$rules_dir"/*.yml 2>/dev/null || true ) | sort -u
 }
 
 run_ast_rules() {
@@ -3202,6 +3273,18 @@ emit_sarif() {
   printf '%s\n' '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"ubs-java"}},"results":[]}]}'
 }
 
+if [[ "$LIST_RULES" -eq 1 ]]; then
+  QUIET=1
+  USE_COLOR=0
+  if ! check_ast_grep; then
+    echo "ERROR: --list-rules requires ast-grep." >&2
+    exit 2
+  fi
+  write_ast_rules || exit 2
+  list_generated_ast_rule_ids "$AST_RULE_DIR"
+  exit 0
+fi
+
 # ────────────────────────────────────────────────────────────────────────────
 # Startup banner
 # ────────────────────────────────────────────────────────────────────────────
@@ -3327,12 +3410,17 @@ print_category "Detects: Optional.get(), == null checks misuse, Objects.equals o
   "Unnecessary NPEs and Optional misuse are common sources of production failures"
 
 print_subheader "Optional.get() usage (potential NoSuchElementException)"
-opt_get_ast=$(ast_search '$O.get()' || echo 0)
-opt_get_rg=$("${GREP_RN[@]}" -e "\.get\(\s*\)" "$PROJECT_DIR" 2>/dev/null | (grep -vE "\.getClass\(" || true) | count_lines || true)
-opt_total=$(( (opt_get_ast>0) ? opt_get_ast : opt_get_rg ))
+mapfile -t opt_meta < <(java_pattern_scan optional_get)
+opt_total="${opt_meta[0]:-0}"
+opt_samples="${opt_meta[1]:-}"
 if [ "$opt_total" -gt 0 ]; then
   print_finding "warning" "$opt_total" "Optional.get() detected" "Prefer orElse/orElseThrow or ifPresent"
-  show_detailed_finding "\.get\(\)" 5
+  if [ -n "$opt_samples" ]; then
+    IFS=',' read -r -a opt_sample_arr <<<"$opt_samples"
+    for sample in "${opt_sample_arr[@]}"; do
+      say "    ${DIM}$sample${RESET}"
+    done
+  fi
 else
   print_finding "good" "No Optional.get() calls"
 fi
@@ -3838,10 +3926,17 @@ else
 fi
 
 print_subheader "ExecutorService shutdown tracking"
-exec_leak=$("${GREP_RN[@]}" -e "ExecutorService[[:space:]]+[A-Za-z0-9_]+[[:space:]]*=\s*Executors\." "$PROJECT_DIR" 2>/dev/null | count_lines || true)
-if [ "$exec_leak" -gt 0 ]; then
+mapfile -t exec_meta < <(java_pattern_scan executor_leak)
+exec_leak="${exec_meta[0]:-0}"
+exec_samples="${exec_meta[1]:-}"
+if [ "${exec_leak:-0}" -gt 0 ]; then
   print_finding "warning" "$exec_leak" "ExecutorService created without shutdown" "Call shutdown()/shutdownNow() in finally blocks"
-  show_detailed_finding "ExecutorService[[:space:]]+[A-Za-z0-9_]+[[:space:]]*=\s*Executors\." 3
+  if [ -n "$exec_samples" ]; then
+    IFS=',' read -r -a exec_sample_arr <<<"$exec_samples"
+    for sample in "${exec_sample_arr[@]}"; do
+      say "    ${DIM}$sample${RESET}"
+    done
+  fi
 fi
 
 run_resource_lifecycle_checks

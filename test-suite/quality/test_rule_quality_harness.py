@@ -313,6 +313,24 @@ class AstGrepRulePackHelperTest(unittest.TestCase):
             specs["ruby-rule-pack"]["expected_rule_ids"],
         )
 
+    def test_ast_grep_rule_pack_specs_include_java_dumpable_rules(self) -> None:
+        specs = {
+            spec["label"]: spec
+            for spec in rule_quality_harness.AST_GREP_SARIF_CHECKS
+        }
+
+        self.assertIn("java-rule-pack", specs)
+        self.assertEqual(specs["java-rule-pack"]["module"], "ubs-java.sh")
+        self.assertIn("--no-build", specs["java-rule-pack"]["args"])
+        self.assertIn(
+            "java.resource.executor-no-shutdown",
+            specs["java-rule-pack"]["expected_rule_ids"],
+        )
+        self.assertIn(
+            "java.insecure-deserialization",
+            specs["java-rule-pack"]["expected_rule_ids"],
+        )
+
     def test_parses_machine_readable_list_rule_ids(self) -> None:
         rule_ids = rule_quality_harness.parse_list_rule_ids(
             "go.exec-sh-c\nrust.unwrap-call\n",
