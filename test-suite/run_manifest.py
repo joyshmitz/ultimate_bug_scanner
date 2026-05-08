@@ -172,11 +172,9 @@ def expect_schema_errors(expect: Any, label: str) -> List[str]:
         if key in expect:
             errors.extend(string_list_errors(expect[key], f"{label}.expect.{key}"))
 
-    if (
-        "allow_unparseable_output" in expect
-        and type(expect["allow_unparseable_output"]) is not bool
-    ):
-        errors.append(f"{label}.expect.allow_unparseable_output must be a boolean")
+    for key in ("allow_unparseable_output", "allow_zero_files"):
+        if key in expect and type(expect[key]) is not bool:
+            errors.append(f"{label}.expect.{key} must be a boolean")
 
     return errors
 
@@ -410,6 +408,10 @@ def check_expectations(
             derived_exit = 0
         if fail_on_warning and (critical + warning) > 0:
             derived_exit = 1
+        if int(totals.get("files", 0) or 0) <= 0 and not bool(
+            (expect or {}).get("allow_zero_files", False)
+        ):
+            errors.append("summary reported zero scanned files")
     if expect:
         need = expect.get("exit_code")
         if isinstance(need, int):

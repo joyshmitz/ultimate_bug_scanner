@@ -392,6 +392,7 @@ class RunManifestExpectationTest(unittest.TestCase):
     def test_manifest_schema_rejects_false_green_expectation_shapes(self) -> None:
         case = self.minimal_manifest_case()
         case["expect"] = {
+            "allow_zero_files": "false",
             "allow_unparseable_output": "false",
             "exit_code": True,
             "require_substrings": "eval",
@@ -414,6 +415,10 @@ class RunManifestExpectationTest(unittest.TestCase):
         )
         self.assertIn(
             "case js-schema-valid.expect.allow_unparseable_output must be a boolean",
+            errors,
+        )
+        self.assertIn(
+            "case js-schema-valid.expect.allow_zero_files must be a boolean",
             errors,
         )
 
@@ -569,6 +574,30 @@ class RunManifestExpectationTest(unittest.TestCase):
         )
 
         self.assertIn("expected exit 0 but derived 1", errors)
+
+    def test_check_expectations_rejects_zero_file_summaries(self) -> None:
+        errors = rule_quality_harness.check_expectations(
+            {"exit_code": "zero"},
+            exit_code=0,
+            summary={"totals": {"critical": 0, "warning": 0, "info": 0, "files": 0}},
+            stdout="",
+            stderr="",
+            fail_on_warning=False,
+        )
+
+        self.assertIn("summary reported zero scanned files", errors)
+
+    def test_check_expectations_allows_explicit_zero_file_opt_in(self) -> None:
+        errors = rule_quality_harness.check_expectations(
+            {"allow_zero_files": True, "exit_code": "zero"},
+            exit_code=0,
+            summary={"totals": {"critical": 0, "warning": 0, "info": 0, "files": 0}},
+            stdout="",
+            stderr="",
+            fail_on_warning=False,
+        )
+
+        self.assertEqual(errors, [])
 
     def test_check_expectations_enforces_substrings_and_totals(self) -> None:
         errors = rule_quality_harness.check_expectations(
