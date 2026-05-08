@@ -43,6 +43,76 @@ class RuleInventoryCoverageInvariantTest(unittest.TestCase):
             )
 
 
+class ScopeConstructionTest(unittest.TestCase):
+    @staticmethod
+    def case(case_id: str, language: str, tags: list[str]) -> dict[str, object]:
+        return {
+            "expect": {},
+            "id": case_id,
+            "language": language,
+            "path": f"test-suite/{language}/{case_id}",
+            "tags": tags,
+        }
+
+    def test_runtime_campaign_scope_uses_target_pairs_and_behavior_cases(self) -> None:
+        pairs = [
+            {"buggy_case": "js-buggy", "clean_case": "js-clean", "language": "js"},
+            {
+                "buggy_case": "python-buggy",
+                "clean_case": "python-clean",
+                "language": "python",
+            },
+        ]
+        cases = [
+            self.case("js-behavior-buggy", "js", ["async", "buggy"]),
+            self.case("golang-behavior-clean", "golang", ["resource", "clean"]),
+            self.case("rust-security-excluded", "rust", ["async", "security", "buggy"]),
+            self.case("python-behavior-buggy", "python", ["async", "buggy"]),
+        ]
+
+        scopes = rule_quality_harness.runtime_scopes_from_pairs(pairs, cases)
+
+        self.assertEqual(
+            scopes["campaign"],
+            [
+                "js-buggy",
+                "js-clean",
+                "js-behavior-buggy",
+                "golang-behavior-clean",
+            ],
+        )
+        self.assertEqual(
+            scopes["all"],
+            ["js-buggy", "js-clean", "python-buggy", "python-clean"],
+        )
+
+    def test_robustness_campaign_clean_fuzz_scope_uses_clean_target_cases(self) -> None:
+        pairs = [
+            {"buggy_case": "rust-buggy", "clean_case": "rust-clean", "language": "rust"},
+            {
+                "buggy_case": "python-buggy",
+                "clean_case": "python-clean",
+                "language": "python",
+            },
+        ]
+        cases = [
+            self.case("js-behavior-buggy", "js", ["type-narrowing", "buggy"]),
+            self.case("js-behavior-clean", "js", ["type-narrowing", "clean"]),
+            self.case("python-behavior-clean", "python", ["type-narrowing", "clean"]),
+        ]
+
+        scopes = rule_quality_harness.robustness_scopes_from_pairs(pairs, cases)
+
+        self.assertEqual(
+            scopes["campaign"]["metamorphic"],
+            ["rust-buggy", "rust-clean", "js-behavior-buggy", "js-behavior-clean"],
+        )
+        self.assertEqual(
+            scopes["campaign"]["clean_fuzz"],
+            ["rust-clean", "js-behavior-clean"],
+        )
+
+
 class ExpectationStrengthScopeTest(unittest.TestCase):
     def test_language_filter_separates_target_and_all_supported_debt(self) -> None:
         runtime_scopes = {"all": ["js-clean", "python-clean"]}
