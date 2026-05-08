@@ -138,6 +138,20 @@ CAMPAIGN_LANGUAGE_METAMORPHIC_TRANSFORMS = ("whitespace",)
 DEFAULT_FUZZ_ITERATIONS = 3
 JSON_DECODER = json.JSONDecoder()
 
+
+def default_case_timeout() -> int:
+    raw_timeout = os.environ.get("UBS_RULE_QUALITY_CASE_TIMEOUT", "120")
+    try:
+        timeout = int(raw_timeout)
+    except ValueError as exc:
+        raise AssertionError(
+            "UBS_RULE_QUALITY_CASE_TIMEOUT must be an integer number of seconds"
+        ) from exc
+    if timeout <= 0:
+        raise AssertionError("UBS_RULE_QUALITY_CASE_TIMEOUT must be positive")
+    return timeout
+
+
 sys.path.insert(0, str(TEST_ROOT))
 from run_manifest import (  # noqa: E402
     check_expectations,
@@ -146,6 +160,7 @@ from run_manifest import (  # noqa: E402
     empty_manifest_error,
     extract_json_from_stdout,
     invalid_case_id_labels,
+    manifest_schema_errors,
     missing_selected_case_ids,
     parse_module_text_summary,
     parse_text_summary,
@@ -1550,7 +1565,7 @@ def main(argv: list[str]) -> int:
 
     enable_line_buffered_stdout()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--case-timeout", type=int, default=60)
+    parser.add_argument("--case-timeout", type=int, default=default_case_timeout())
     parser.add_argument("--fuzz-iterations", type=int, default=DEFAULT_FUZZ_ITERATIONS)
     parser.add_argument(
         "--runtime-scope",
@@ -1570,6 +1585,9 @@ def main(argv: list[str]) -> int:
 
     update_golden = args.update_goldens or os.environ.get("UPDATE_GOLDENS") == "1"
     manifest = load_manifest()
+    schema_errors = manifest_schema_errors(manifest)
+    if schema_errors:
+        raise AssertionError(f"manifest schema errors: {schema_errors}")
     coverage = build_rule_coverage(manifest)
     update_or_check_golden(coverage, update_golden)
     log_progress("[manifest-audit] PASS")

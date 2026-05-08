@@ -21,6 +21,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = Path(__file__).with_name("manifest.json")
 JSON_DECODER = json.JSONDecoder()
 SUMMARY_COUNT_KEYS = ("files", "critical", "warning", "info")
+EXPECT_SUBSTRING_KEYS = (
+    "require_substrings",
+    "forbid_substrings",
+    "require_substrings_stderr",
+    "forbid_substrings_stderr",
+)
 
 
 def load_manifest(path: Path) -> Dict[str, Any]:
@@ -79,6 +85,154 @@ def duplicate_case_ids(cases: Sequence[Dict[str, Any]]) -> List[str]:
             duplicates.add(case_id)
         seen.add(case_id)
     return sorted(duplicates)
+
+
+def nonempty_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def string_list_errors(value: Any, label: str) -> List[str]:
+    if not isinstance(value, list):
+        return [f"{label} must be a list of strings"]
+    errors: List[str] = []
+    for index, item in enumerate(value):
+        if not nonempty_string(item):
+            errors.append(f"{label}[{index}] must be a non-empty string")
+    return errors
+
+
+def env_mapping_errors(value: Any, label: str) -> List[str]:
+    if not isinstance(value, dict):
+        return [f"{label} must be an object with string keys and string values"]
+    errors: List[str] = []
+    for key, item in value.items():
+        if not nonempty_string(key):
+            errors.append(f"{label} has a non-string or empty key")
+        if not isinstance(item, str):
+            errors.append(f"{label}.{key} must be a string")
+    return errors
+
+
+def shim_mapping_errors(value: Any, label: str) -> List[str]:
+    if not isinstance(value, dict):
+        return [f"{label} must be an object with executable names mapped to script text"]
+    errors: List[str] = []
+    for key, item in value.items():
+        if not nonempty_string(key):
+            errors.append(f"{label} has a non-string or empty executable name")
+        if not isinstance(item, str):
+            errors.append(f"{label}.{key} must be script text")
+    return errors
+
+
+def expect_schema_errors(expect: Any, label: str) -> List[str]:
+    if expect is None:
+        return []
+    if not isinstance(expect, dict):
+        return [f"{label}.expect must be an object"]
+    errors: List[str] = []
+    exit_code = expect.get("exit_code")
+    if exit_code is not None:
+        if type(exit_code) is int:
+            if exit_code < 0:
+                errors.append(f"{label}.expect.exit_code must be non-negative")
+        elif isinstance(exit_code, str):
+            if exit_code not in {"zero", "nonzero"} and not exit_code.isdigit():
+                errors.append(
+                    f"{label}.expect.exit_code must be zero, nonzero, or a numeric string"
+                )
+        else:
+            errors.append(f"{label}.expect.exit_code must be an integer or string")
+
+    totals = expect.get("totals")
+    if totals is not None:
+        if not isinstance(totals, dict):
+            errors.append(f"{label}.expect.totals must be an object")
+        else:
+            for severity, limits in totals.items():
+                if severity not in SUMMARY_COUNT_KEYS:
+                    errors.append(
+                        f"{label}.expect.totals.{severity} is not a supported count key"
+                    )
+                    continue
+                if not isinstance(limits, dict):
+                    errors.append(f"{label}.expect.totals.{severity} must be an object")
+                    continue
+                for bound, value in limits.items():
+                    if bound not in {"min", "max"}:
+                        errors.append(
+                            f"{label}.expect.totals.{severity}.{bound} is not supported"
+                        )
+                    elif not is_nonnegative_int(value):
+                        errors.append(
+                            f"{label}.expect.totals.{severity}.{bound} must be a non-negative integer"
+                        )
+
+    for key in EXPECT_SUBSTRING_KEYS:
+        if key in expect:
+            errors.extend(string_list_errors(expect[key], f"{label}.expect.{key}"))
+
+    if (
+        "allow_unparseable_output" in expect
+        and type(expect["allow_unparseable_output"]) is not bool
+    ):
+        errors.append(f"{label}.expect.allow_unparseable_output must be a boolean")
+
+    return errors
+
+
+def manifest_schema_errors(manifest: Dict[str, Any]) -> List[str]:
+    errors: List[str] = []
+    defaults = manifest.get("defaults", {})
+    if not isinstance(defaults, dict):
+        errors.append("defaults must be an object")
+        defaults = {}
+    else:
+        if "ubs_bin" in defaults and not nonempty_string(defaults["ubs_bin"]):
+            errors.append("defaults.ubs_bin must be a non-empty string")
+        if "artifacts_dir" in defaults and not nonempty_string(defaults["artifacts_dir"]):
+            errors.append("defaults.artifacts_dir must be a non-empty string")
+        if "args" in defaults:
+            errors.extend(string_list_errors(defaults["args"], "defaults.args"))
+        if "env" in defaults:
+            errors.extend(env_mapping_errors(defaults["env"], "defaults.env"))
+
+    cases = manifest.get("cases", [])
+    if not isinstance(cases, list):
+        return [*errors, "cases must be an array"]
+    if not cases:
+        return [*errors, "cases must contain at least one case"]
+    for index, case in enumerate(cases):
+        label = f"manifest case #{index + 1}"
+        if not isinstance(case, dict):
+            errors.append(f"{label} must be an object")
+            continue
+        case_id = case.get("id")
+        if nonempty_string(case_id):
+            label = f"case {case_id}"
+        for key in ("id", "path", "language", "description"):
+            if not nonempty_string(case.get(key)):
+                errors.append(f"{label}.{key} must be a non-empty string")
+        path = case.get("path")
+        if isinstance(path, str) and path.strip():
+            if not resolve_path(REPO_ROOT, path).exists():
+                errors.append(f"{label}.path does not exist: {path}")
+        tags = case.get("tags")
+        if tags is not None:
+            errors.extend(string_list_errors(tags, f"{label}.tags"))
+        if "enabled" in case and type(case["enabled"]) is not bool:
+            errors.append(f"{label}.enabled must be a boolean")
+        if "ubs_bin" in case and not nonempty_string(case["ubs_bin"]):
+            errors.append(f"{label}.ubs_bin must be a non-empty string")
+        if "args" in case:
+            errors.extend(string_list_errors(case["args"], f"{label}.args"))
+        if "env" in case:
+            errors.extend(env_mapping_errors(case["env"], f"{label}.env"))
+        if "bin_shims" in case:
+            errors.extend(shim_mapping_errors(case["bin_shims"], f"{label}.bin_shims"))
+        errors.extend(expect_schema_errors(case.get("expect"), label))
+
+    return errors
 
 
 def disabled_case_ids(
@@ -328,6 +482,14 @@ def main() -> None:
     empty_error = empty_manifest_error(cases)
     if empty_error:
         print(f"[manifest] FAIL\n  - {empty_error}", file=sys.stderr)
+        sys.exit(1)
+
+    schema_errors = manifest_schema_errors(manifest)
+    if schema_errors:
+        print(
+            format_case_result("manifest", "fail", 0.0, schema_errors),
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     invalid_case_ids = invalid_case_id_labels(cases)

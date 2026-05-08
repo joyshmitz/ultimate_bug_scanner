@@ -3,6 +3,7 @@
 
 import contextlib
 import io
+import os
 import unittest
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,39 @@ class ProgressOutputTest(unittest.TestCase):
             rule_quality_harness.log_progress("[phase] running case")
 
         self.assertEqual(buffer.getvalue(), "[phase] running case\n")
+
+
+class QualityHarnessConfigTest(unittest.TestCase):
+    def test_default_case_timeout_has_load_margin(self) -> None:
+        old_value = os.environ.pop("UBS_RULE_QUALITY_CASE_TIMEOUT", None)
+        try:
+            self.assertEqual(rule_quality_harness.default_case_timeout(), 120)
+        finally:
+            if old_value is not None:
+                os.environ["UBS_RULE_QUALITY_CASE_TIMEOUT"] = old_value
+
+    def test_default_case_timeout_is_env_overridable(self) -> None:
+        old_value = os.environ.get("UBS_RULE_QUALITY_CASE_TIMEOUT")
+        os.environ["UBS_RULE_QUALITY_CASE_TIMEOUT"] = "180"
+        try:
+            self.assertEqual(rule_quality_harness.default_case_timeout(), 180)
+        finally:
+            if old_value is None:
+                os.environ.pop("UBS_RULE_QUALITY_CASE_TIMEOUT", None)
+            else:
+                os.environ["UBS_RULE_QUALITY_CASE_TIMEOUT"] = old_value
+
+    def test_default_case_timeout_rejects_invalid_values(self) -> None:
+        old_value = os.environ.get("UBS_RULE_QUALITY_CASE_TIMEOUT")
+        os.environ["UBS_RULE_QUALITY_CASE_TIMEOUT"] = "0"
+        try:
+            with self.assertRaisesRegex(AssertionError, "must be positive"):
+                rule_quality_harness.default_case_timeout()
+        finally:
+            if old_value is None:
+                os.environ.pop("UBS_RULE_QUALITY_CASE_TIMEOUT", None)
+            else:
+                os.environ["UBS_RULE_QUALITY_CASE_TIMEOUT"] = old_value
 
 
 class RuleInventoryCoverageInvariantTest(unittest.TestCase):
@@ -189,6 +223,86 @@ class SarifShapeTest(unittest.TestCase):
 
 
 class RunManifestExpectationTest(unittest.TestCase):
+    @staticmethod
+    def minimal_manifest_case() -> dict[str, Any]:
+        return {
+            "args": ["--only=js"],
+            "description": "schema-valid fixture",
+            "expect": {
+                "exit_code": "nonzero",
+                "require_substrings": ["eval"],
+                "totals": {"critical": {"min": 1}},
+            },
+            "id": "js-schema-valid",
+            "language": "js",
+            "path": "test-suite/js/buggy/security.js",
+            "tags": ["js", "buggy", "security"],
+        }
+
+    def test_manifest_schema_accepts_current_manifest(self) -> None:
+        self.assertEqual(
+            rule_quality_harness.manifest_schema_errors(
+                rule_quality_harness.load_manifest()
+            ),
+            [],
+        )
+
+    def test_manifest_schema_rejects_false_green_expectation_shapes(self) -> None:
+        case = self.minimal_manifest_case()
+        case["expect"] = {
+            "allow_unparseable_output": "false",
+            "exit_code": True,
+            "require_substrings": "eval",
+            "totals": {"critical": {"min": "1"}},
+        }
+
+        errors = rule_quality_harness.manifest_schema_errors({"cases": [case]})
+
+        self.assertIn(
+            "case js-schema-valid.expect.exit_code must be an integer or string",
+            errors,
+        )
+        self.assertIn(
+            "case js-schema-valid.expect.require_substrings must be a list of strings",
+            errors,
+        )
+        self.assertIn(
+            "case js-schema-valid.expect.totals.critical.min must be a non-negative integer",
+            errors,
+        )
+        self.assertIn(
+            "case js-schema-valid.expect.allow_unparseable_output must be a boolean",
+            errors,
+        )
+
+    def test_manifest_schema_rejects_scalar_command_fields(self) -> None:
+        case = self.minimal_manifest_case()
+        case.update(
+            {
+                "args": "--only=js",
+                "bin_shims": {"ast-grep": ["not script text"]},
+                "enabled": "false",
+                "env": {"UBS_TEST_FORCE_NO_AST_GREP": 1},
+            }
+        )
+
+        errors = rule_quality_harness.manifest_schema_errors(
+            {
+                "defaults": {"args": "--ci", "env": {"NO_COLOR": 1}},
+                "cases": [case],
+            }
+        )
+
+        self.assertIn("defaults.args must be a list of strings", errors)
+        self.assertIn("defaults.env.NO_COLOR must be a string", errors)
+        self.assertIn("case js-schema-valid.args must be a list of strings", errors)
+        self.assertIn("case js-schema-valid.enabled must be a boolean", errors)
+        self.assertIn(
+            "case js-schema-valid.env.UBS_TEST_FORCE_NO_AST_GREP must be a string",
+            errors,
+        )
+        self.assertIn("case js-schema-valid.bin_shims.ast-grep must be script text", errors)
+
     def test_extract_json_summary_skips_jsonl_findings(self) -> None:
         stdout = "\n".join(
             [
