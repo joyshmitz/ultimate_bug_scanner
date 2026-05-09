@@ -150,12 +150,28 @@ jobs:
           [[ "$FILE_HEALTHY"    == "false" ]] && fail_count=$((fail_count+1))
           [[ "$MODULES_HEALTHY" == "false" ]] && fail_count=$((fail_count+1))
           [[ "$TAG_HEALTHY"     == "false" ]] && fail_count=$((fail_count+1))
+          # IMPORTANT: keep titles to plain ASCII-ish text — no literal "$",
+          # no backticks, no "$(...)" command substitutions. The title is
+          # consumed by the next step via the ISSUE_TITLE env var (bash expands
+          # the env-var value once as a string, so a "$" inside the value is
+          # safe today), but the env-var pass is the only thing protecting us.
+          # If a future maintainer switches the consumer back to direct GitHub
+          # Actions expression interpolation into the bash command, any "$"
+          # in the title would be re-evaluated by bash as a parameter expansion
+          # and silently drop unset variables. Body is fine because it is
+          # read via `--body-file`, never interpolated by bash.
           if   [[ $fail_count -gt 1 ]];                       then TITLE="URGENT: Multiple checksum drift categories detected"
           elif [[ "$FILE_HEALTHY" == "false" ]];              then TITLE="URGENT: Top-level checksum drift (ubs/install.sh) — users cannot install"
           elif [[ "$MODULES_HEALTHY" == "false" ]];           then TITLE="Module checksum drift — module file does not match expected hash in ubs"
-          else                                                     TITLE="Version-tag checksum drift — main modules differ from v\$UBS_VERSION tag"
+          else                                                     TITLE="Version-tag checksum drift — main modules differ from the tagged release"
           fi
-          echo "title=$TITLE" >> "$GITHUB_OUTPUT"
+          # Use the multi-line GITHUB_OUTPUT delimiter syntax so a future title
+          # containing "=" or other delimiter-significant chars stays intact.
+          {
+            echo "title<<TITLE_EOF"
+            printf '%s\n' "$TITLE"
+            echo "TITLE_EOF"
+          } >> "$GITHUB_OUTPUT"
 
           {
             echo "## Checksum Health Check Failed"
@@ -164,7 +180,7 @@ jobs:
             echo "|----------|--------|"
             echo "| Top-level files (\`ubs\`, \`install.sh\`)        | $(status_icon "$FILE_HEALTHY")    |"
             echo "| Module file hashes (\`MODULE_CHECKSUMS\` in ubs) | $(status_icon "$MODULES_HEALTHY") |"
-            echo "| Version-tag drift (main vs v\$UBS_VERSION)      | $(status_icon "$TAG_HEALTHY")     |"
+            echo "| Version-tag drift (main vs the tagged release)  | $(status_icon "$TAG_HEALTHY")     |"
             echo ""
 
             if [[ "$FILE_HEALTHY" == "false" ]]; then
@@ -210,7 +226,7 @@ jobs:
             if [[ "$TAG_HEALTHY" == "false" ]]; then
               echo "### Version-Tag Drift (issue #45 follow-up)"
               echo ""
-              echo "The \`v\$UBS_VERSION\` tag's modules no longer match what main's \`ubs\` script expects. Users pinned to that tag will see runtime mismatches."
+              echo "The current release tag's modules no longer match what main's \`ubs\` script expects (run \`scripts/check-version-tag-drift.sh\` for the exact tag name and per-module deltas). Users pinned to that tag will see runtime mismatches."
               echo ""
               echo "Drift report (from \`scripts/check-version-tag-drift.sh\`):"
               echo ""
@@ -240,13 +256,19 @@ jobs:
 
       - name: Create issue for checksum drift
         if: (steps.verify.outputs.healthy == 'false' || steps.verify_modules.outputs.modules_healthy == 'false' || steps.verify_version_tag_drift.outputs.tag_drift_healthy == 'false') && steps.check_issue.outputs.existing_issue == ''
-        run: |
-          gh issue create \
-            --title "${{ steps.build_body.outputs.title }}" \
-            --label "checksum-drift" \
-            --body-file /tmp/issue_body.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Pass the title through an env var rather than ${{ }} interpolation
+          # directly into the bash command. Direct interpolation would let bash
+          # re-evaluate any "$WORD" inside the title (silently dropping unset
+          # vars and, in principle, executing $(cmd) substitutions). The env-var
+          # form passes the value as a string that bash expands once via "$ISSUE_TITLE".
+          ISSUE_TITLE: ${{ steps.build_body.outputs.title }}
+        run: |
+          gh issue create \
+            --title "$ISSUE_TITLE" \
+            --label "checksum-drift" \
+            --body-file /tmp/issue_body.md
 
       - name: Fail if unhealthy
         if: steps.verify.outputs.healthy == 'false' || steps.verify_modules.outputs.modules_healthy == 'false' || steps.verify_version_tag_drift.outputs.tag_drift_healthy == 'false'
