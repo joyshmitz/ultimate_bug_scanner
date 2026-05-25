@@ -8,6 +8,14 @@ Repository: <https://github.com/Dicklesworthstone/ultimate_bug_scanner>
 
 ---
 
+## [v5.3.1] - 2026-05-24
+
+### Fixes
+
+- **#51 follow-up — three additional source-scanning count pipelines now route through `count_lines()`.** Fresh-eyes review of the v5.3.0 sweep found three source-scanning pipelines that still went through `grep -c` / `grep -Ec` and silently ignored per-line `// ubs:ignore` / `# ubs:ignore` markers: `modules/ubs-swift.sh` "String += in loops" (cat 17 PERFORMANCE), `modules/ubs-swift.sh` "sleep/usleep in tests" (cat 21 TESTING), and `modules/ubs-rust.sh` "todo!/unimplemented! in tests" (cat 11 TESTS & BENCHES). All three now use `count_lines()`; the trailing `awk 'END{print $0+0}'` post-processor is replaced with `${count:-0}`. `MODULE_CHECKSUMS` (rust, swift) and `SHA256SUMS` refreshed.
+
+---
+
 ## [v5.3.0] - 2026-05-24
 
 ### Fixes

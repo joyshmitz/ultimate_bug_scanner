@@ -3961,8 +3961,8 @@ print_header "10. PERFORMANCE"
 tick
 
  print_subheader "String concatenation in loops (heuristic)"
- count=$("${GREP_RN[@]}" -e 'for[[:space:]]+.+[[:space:]]+in[[:space:]]+.+\{' "$PROJECT_DIR" 2>/dev/null | (grep -A6 "\\+=" || true) | (grep -cE "\\+=" || true))
-count=$(printf '%s\n' "$count" | awk 'END{print $0+0}')
+ count=$("${GREP_RN[@]}" -e 'for[[:space:]]+.+[[:space:]]+in[[:space:]]+.+\{' "$PROJECT_DIR" 2>/dev/null | (grep -A6 "\\+=" || true) | (grep -E "\\+=" || true) | count_lines)
+count=${count:-0}
  if [[ "${count:-0}" -gt 5 ]]; then print_finding "info" "$count" "String += in loops - consider join/builders"; else print_finding "good" "No obvious string += loop patterns"; fi
 tick
 
@@ -4197,8 +4197,8 @@ count=$("${GREP_RN[@]}" -e "XCTFail\\(\"TODO" "$PROJECT_DIR" 2>/dev/null | count
  tick
 
  print_subheader "sleep/usleep in tests"
- count=$("${GREP_RN[@]}" -e "XCTestCase|XCT" "$PROJECT_DIR" 2>/dev/null | (grep -A4 -E "sleep\\(|usleep\\(" || true) | (grep -cE "sleep\\(|usleep\\(" || true))
-count=$(printf '%s\n' "$count" | awk 'END{print $0+0}')
+ count=$("${GREP_RN[@]}" -e "XCTestCase|XCT" "$PROJECT_DIR" 2>/dev/null | (grep -A4 -E "sleep\\(|usleep\\(" || true) | (grep -E "sleep\\(|usleep\\(" || true) | count_lines)
+count=${count:-0}
  if [[ "${count:-0}" -gt 0 ]]; then print_finding "info" "$count" "Sleep in tests - use expectations"; else print_finding "good" "No sleep/usleep patterns in tests by heuristic"; fi
 fi
 

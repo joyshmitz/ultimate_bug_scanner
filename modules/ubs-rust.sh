@@ -8459,8 +8459,8 @@ ignored_tests=$("${GREP_RN[@]}" -e "#\[ignore\]" "$PROJECT_DIR" 2>/dev/null | co
 if [ "$ignored_tests" -gt 0 ]; then print_finding "info" "$ignored_tests" "#[ignore] tests present - verify intent"; add_finding "info" "$ignored_tests" "#[ignore] tests present - verify intent" "" "${CATEGORY_NAME[11]}"; fi
 
 print_subheader "todo!/unimplemented! in tests"
-test_todo=$("${GREP_RN[@]}" -e "#\[test\]" "$PROJECT_DIR" 2>/dev/null | (grep -A5 -E "todo!|unimplemented!" || true) | (grep -Ec "todo!|unimplemented!" || true))
-test_todo=$(echo "$test_todo" | awk 'END{print $0+0}')
+test_todo=$("${GREP_RN[@]}" -e "#\[test\]" "$PROJECT_DIR" 2>/dev/null | (grep -A5 -E "todo!|unimplemented!" || true) | (grep -E "todo!|unimplemented!" || true) | count_lines)
+test_todo=${test_todo:-0}
 if [ "$test_todo" -gt 0 ]; then print_finding "info" "$test_todo" "todo!/unimplemented! seen near #[test]"; add_finding "info" "$test_todo" "todo!/unimplemented! seen near #[test]" "" "${CATEGORY_NAME[11]}"; fi
 fi
 
