@@ -6218,6 +6218,41 @@ def split_identifier_terms(text: str) -> str:
     text = re.sub(r'[_\-.]+', ' ', text)
     return text
 
+def strip_string_contents(text: str) -> str:
+    # Blank out the CONTENTS of "..." and `...` string literals while keeping the
+    # surrounding quotes, so the expression's structure (identifiers, calls, fields)
+    # survives but a sensitive-looking word that lives only inside string data does
+    # not contribute to sensitivity. A title/label/UI-text field like
+    # `Model{title: "Auth Login Flow"}` must not taint the variable it is assigned to.
+    out = []
+    idx = 0
+    n = len(text)
+    while idx < n:
+        ch = text[idx]
+        if ch == '"':
+            out.append('"')
+            idx += 1
+            while idx < n and text[idx] != '"':
+                if text[idx] == '\\' and idx + 1 < n:
+                    idx += 2
+                    continue
+                idx += 1
+            if idx < n:
+                idx += 1
+            out.append('"')
+        elif ch == '`':
+            out.append('`')
+            idx += 1
+            while idx < n and text[idx] != '`':
+                idx += 1
+            if idx < n:
+                idx += 1
+            out.append('`')
+        else:
+            out.append(ch)
+            idx += 1
+    return ''.join(out)
+
 def is_sensitive_text(text: str) -> bool:
     return bool(SENSITIVE_RE.search(split_identifier_terms(text)))
 
@@ -6278,7 +6313,13 @@ def collect_sensitive_vars(lines):
         if not match:
             continue
         rhs = match.group('rhs')
-        rhs_sensitive = is_sensitive_operand_text(rhs) or bool(operand_identifiers(rhs) & sensitive)
+        # Only let the RHS taint the assigned variable name when its sensitivity comes
+        # from code (identifiers, fields, calls), not from data living inside a string
+        # literal. Otherwise a fixture like `Model{title: "Auth Login Flow"}` taints a
+        # common local name (e.g. `m`) for the whole file, flagging unrelated ==/!=
+        # assertions elsewhere as secret comparisons.
+        rhs_code = strip_string_contents(rhs)
+        rhs_sensitive = is_sensitive_operand_text(rhs_code) or bool(operand_identifiers(rhs_code) & sensitive)
         for name in lhs_names(match.group('lhs')):
             if is_sensitive_text(name) or rhs_sensitive:
                 sensitive.add(name)

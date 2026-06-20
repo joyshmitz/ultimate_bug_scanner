@@ -44,3 +44,10 @@ func verifySignatureInline(signature string, expectedSignature string) bool {
 func verifyLengthGuardedResetToken(token string, expectedResetToken string) bool {
 	return len(token) == 64 && token == expectedResetToken
 }
+
+// Positive control for #54: a genuine secret comparison whose sensitivity comes
+// from the OPERAND identifiers (not from string data) must STILL be detected after
+// the false-positive fix that ignores sensitive words inside string-literal contents.
+func checkToken(gotToken string, wantToken string) bool {
+	return gotToken == wantToken
+}
