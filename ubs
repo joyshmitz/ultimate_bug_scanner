@@ -2341,12 +2341,83 @@ fi
 # Execution / aggregation
 # ─────────────────────────────────────────────────────────────────────────────
 TMPDIR_RUN="$(mktemp -d 2>/dev/null || mktemp -d -t ubsrun.XXXXXX)"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-module time bound + process-group teardown (issue #60)
+#
+# Each language module can shell out to build tools (cargo, ast-grep, …) that
+# block indefinitely — e.g. `cargo check` waiting on a `.cargo-lock` held by
+# another build. Without a bound, a single wedged module hangs the whole scan
+# (the dispatcher's `wait` never returns). We therefore launch every module
+# under `timeout`, which (a) enforces a wall-clock budget and (b) runs the
+# child in its own process group and signals that whole group on expiry, so the
+# module's cargo/ast-grep grandchildren are reaped instead of orphaned.
+# ─────────────────────────────────────────────────────────────────────────────
+# Detect a timeout utility: GNU/uutils `timeout` (Linux) or `gtimeout` (macOS
+# via coreutils). If neither exists we degrade gracefully — modules run
+# unbounded rather than erroring.
+UBS_TIMEOUT_BIN=""
+if command -v timeout >/dev/null 2>&1; then
+  UBS_TIMEOUT_BIN="$(command -v timeout)"
+elif command -v gtimeout >/dev/null 2>&1; then
+  UBS_TIMEOUT_BIN="$(command -v gtimeout)"
+fi
+# Wall-clock budget per module (seconds) and grace before SIGKILL after SIGTERM.
+# Override via env: UBS_MODULE_TIMEOUT / UBS_MODULE_TIMEOUT_GRACE. A budget of 0
+# disables the bound.
+UBS_MODULE_TIMEOUT="${UBS_MODULE_TIMEOUT:-300}"
+UBS_MODULE_TIMEOUT_GRACE="${UBS_MODULE_TIMEOUT_GRACE:-15}"
+[[ "$UBS_MODULE_TIMEOUT" =~ ^[0-9]+$ ]] || UBS_MODULE_TIMEOUT=300
+[[ "$UBS_MODULE_TIMEOUT_GRACE" =~ ^[0-9]+$ ]] || UBS_MODULE_TIMEOUT_GRACE=15
+if [[ -z "$UBS_TIMEOUT_BIN" && "${QUIET:-0}" -eq 0 ]]; then
+  say_err "${DIM}Note: no 'timeout'/'gtimeout' utility found; per-module time bound is disabled.${RESET}"
+fi
+
+# Tracks the process-group id (== the backgrounded `timeout` pid, which becomes
+# its own process-group leader) of every in-flight module, so an interrupt can
+# tear the entire module subtree down instead of leaking orphaned cargo procs.
+MODULE_PGID_FILE="$TMPDIR_RUN/module_pgids"
+: > "$MODULE_PGID_FILE" 2>/dev/null || true
+
+# shellcheck disable=SC2317  # invoked indirectly via the INT/TERM trap
+kill_module_pgroups(){
+  local f="${MODULE_PGID_FILE:-}"
+  [[ -n "$f" && -f "$f" ]] || return 0
+  local pgs; pgs="$(cat "$f" 2>/dev/null || true)"
+  [[ -n "$pgs" ]] || return 0
+  local pg
+  while IFS= read -r pg; do
+    [[ "$pg" =~ ^[0-9]+$ ]] || continue
+    kill -TERM -"$pg" 2>/dev/null || true
+  done <<< "$pgs"
+  # Give the groups a brief chance to exit on TERM, then hard-kill any survivors.
+  sleep 1 2>/dev/null || true
+  while IFS= read -r pg; do
+    [[ "$pg" =~ ^[0-9]+$ ]] || continue
+    kill -KILL -"$pg" 2>/dev/null || true
+  done <<< "$pgs"
+}
+
+# shellcheck disable=SC2317  # invoked via the EXIT trap and from on_interrupt
 cleanup(){
   local dir="${TMPDIR_RUN:-}"
   [[ -n "$dir" && "$dir" != "/" ]] || return 0
   rm -rf "$dir" 2>/dev/null || true
 }
+# On interrupt/termination, tear down any in-flight module process groups first
+# (so their cargo/ast-grep grandchildren don't reparent and survive), clean up,
+# then re-raise the signal with the default disposition.
+# shellcheck disable=SC2317  # invoked indirectly via the INT/TERM trap
+on_interrupt(){
+  local sig="$1"
+  kill_module_pgroups
+  cleanup
+  trap - INT TERM EXIT
+  kill -"$sig" "$$" 2>/dev/null || exit 130
+}
 trap cleanup EXIT
+trap 'on_interrupt INT' INT
+trap 'on_interrupt TERM' TERM
 COMBINED_JSON_FILE="$TMPDIR_RUN/combined.json"
 
 if [[ "$TARGETED_SCAN_MODE" -eq 0 ]]; then
@@ -2706,6 +2777,74 @@ select_langs(){
   echo "${normalized[@]}"
 }
 
+# Launch a language module bounded by UBS_MODULE_TIMEOUT, in its own process
+# group, tracking its pgid so an interrupt can reap the whole subtree.
+#   $1 = file to receive the module's stdout
+#   $2 = file to receive (appended) the module's stderr
+#   $3.. = module path followed by its arguments ("$BASH" is prepended)
+# Sets globals MODULE_RUN_STATUS (the module/timeout exit code) and, on timeout,
+# MODULE_TIMED_OUT=1. Never resets MODULE_TIMED_OUT — the caller does that.
+run_module(){
+  local _out="$1" _err="$2"; shift 2
+  # Don't spend a second full budget re-running a fallback after a timeout.
+  if [[ "${MODULE_TIMED_OUT:-0}" -eq 1 ]]; then
+    MODULE_RUN_STATUS=124
+    return 124
+  fi
+  local _pid
+  if [[ -n "$UBS_TIMEOUT_BIN" && "$UBS_MODULE_TIMEOUT" -gt 0 ]]; then
+    "$UBS_TIMEOUT_BIN" -k "${UBS_MODULE_TIMEOUT_GRACE}s" "${UBS_MODULE_TIMEOUT}s" \
+      "$BASH" "$@" >"$_out" 2>>"$_err" &
+  else
+    "$BASH" "$@" >"$_out" 2>>"$_err" &
+  fi
+  _pid=$!
+  # A backgrounded `timeout` is its own process-group leader (pgid == pid), so
+  # recording this id lets on_interrupt kill the module plus its cargo/ast-grep
+  # grandchildren as one group.
+  printf '%s\n' "$_pid" >> "$MODULE_PGID_FILE" 2>/dev/null || true
+  if wait "$_pid"; then
+    MODULE_RUN_STATUS=0
+  else
+    MODULE_RUN_STATUS=$?
+  fi
+  # Timeout signalling across implementations: GNU `timeout` exits 124 on a
+  # TERM-timeout, uutils `timeout` exits 125, and both exit 137 (128+SIGKILL)
+  # when the module ignored TERM and was killed after the -k grace window.
+  if [[ -n "$UBS_TIMEOUT_BIN" && "$UBS_MODULE_TIMEOUT" -gt 0 ]]; then
+    case "$MODULE_RUN_STATUS" in
+      124|125|137) MODULE_TIMED_OUT=1 ;;
+    esac
+  fi
+  return "$MODULE_RUN_STATUS"
+}
+
+# Write a bounded, honest MODULE_TIMEOUT result for a module that blew its time
+# budget, so the scan completes with a clear diagnostic instead of hanging or
+# silently dropping the module. Surfaces one critical finding across text, JSON
+# and SARIF outputs.
+emit_module_timeout_result(){
+  local lang="$1" fmt="$2" json="$3" txt="$4" sarif="$5"
+  local secs="$UBS_MODULE_TIMEOUT"
+  local proj; proj="$(json_escape "${SOURCE_PROJECT_DIR:-$PROJECT_DIR}")"
+  local msg="Scanner module '${lang}' timed out after ${secs}s (UBS_MODULE_TIMEOUT) and was terminated; the scan continued with a bounded partial result. A common cause is a build tool such as cargo blocking on a locked target/ directory or on network access. Raise UBS_MODULE_TIMEOUT or investigate the wedge."
+  local msg_json; msg_json="$(json_escape "$msg")"
+  cat >"$json" <<JSON
+{"language":"$lang","project":"$proj","files":0,"critical":1,"warning":0,"info":0,"timestamp":"$(date_iso)","module_error":"MODULE_TIMEOUT","module_timeout_secs":$secs,"message":"$msg_json"}
+JSON
+  {
+    printf 'MODULE_TIMEOUT: %s\n' "$lang"
+    printf '  %s\n' "$msg"
+    printf 'Critical issues: 1\n'
+  } >"$txt"
+  if [[ "$fmt" == "sarif" ]]; then
+    minimal_sarif_from_text "$lang" "$txt" >"$sarif" 2>/dev/null || true
+  fi
+  if [[ "${QUIET:-0}" -eq 0 ]]; then
+    say_err "${RED}${X}${RESET} Module '${lang}' timed out after ${secs}s (MODULE_TIMEOUT); partial result recorded."
+  fi
+}
+
 # Run a module job
 run_lang(){
   local lang="$1" module="$2" fmt="$3"
@@ -2714,10 +2853,20 @@ run_lang(){
   local out_sarif="$TMPDIR_RUN/$lang.sarif"
   local out_findings="$TMPDIR_RUN/$lang.findings.json"
   local err="$TMPDIR_RUN/$lang.err"
+  local out_raw="$TMPDIR_RUN/$lang.raw"
   local status_file="$TMPDIR_RUN/$lang.status"
   local metrics_dir="$TMPDIR_RUN/$lang.metrics"
   local module_status=0
   local start_ts=$SECONDS
+  local MODULE_TIMED_OUT=0
+  local MODULE_RUN_STATUS=0
+  # run_lang always executes in a backgrounded subshell (see the dispatcher), so
+  # exporting these for the module is isolated to this job. run_module launches
+  # the module as a grandchild (via `timeout`), which inherits the environment.
+  export UBS_LANG="$lang"
+  export UBS_SKIP_TYPE_NARROWING="$SKIP_TYPE_NARROWING"
+  export UBS_METRICS_DIR="$metrics_dir"
+  : > "$err" 2>/dev/null || true
 
   if [[ "${QUIET:-0}" -eq 0 ]]; then
     say_err "${DIM}Scanning $lang...${RESET}"
@@ -2762,27 +2911,22 @@ run_lang(){
         report_args=(--emit-findings-json="$out_findings")
       fi
 
-      if UBS_METRICS_DIR="$metrics_dir" UBS_LANG="$lang" UBS_SKIP_TYPE_NARROWING="$SKIP_TYPE_NARROWING" \
-        "$BASH" "$module" "${args[@]}" "${report_args[@]}" --format=json >"$out_json" 2>"$err"; then
-        module_status=0
-      else
-        module_status=$?
-      fi
+      run_module "$out_json" "$err" "$module" "${args[@]}" "${report_args[@]}" --format=json || true
+      module_status=$MODULE_RUN_STATUS
       restore_original_paths "$out_json"
       # Modules that implement --format=json must emit a UBS summary *object*.
       # If they emit other JSON types (e.g., an array of findings), fall back to
       # text mode so we can still produce a stable combined summary.
-      if need_cmd jq && jq -e 'type=="object" and (.files|type)=="number" and (.critical|type)=="number" and (.warning|type)=="number" and (.info|type)=="number"' "$out_json" >/dev/null 2>&1; then
+      if [[ "$MODULE_TIMED_OUT" -eq 1 ]]; then
+        : # synthetic MODULE_TIMEOUT result is written after the case block
+      elif need_cmd jq && jq -e 'type=="object" and (.files|type)=="number" and (.critical|type)=="number" and (.warning|type)=="number" and (.info|type)=="number"' "$out_json" >/dev/null 2>&1; then
         jq --arg language "$lang" '. + {language: $language}' "$out_json" > "$out_json.tmp" && mv "$out_json.tmp" "$out_json"
         attach_metrics_to_json "$out_json" "$metrics_dir"
       else
         prepare_metrics_dir "$metrics_dir"
-        if UBS_METRICS_DIR="$metrics_dir" UBS_LANG="$lang" UBS_SKIP_TYPE_NARROWING="$SKIP_TYPE_NARROWING" \
-          "$BASH" "$module" "${args[@]}" "${report_args[@]}" 2>>"$err" | apply_inline_suppressions >"$out_txt" 2>>"$err"; then
-          module_status=0
-        else
-          module_status="${PIPESTATUS[0]}"
-        fi
+        run_module "$out_raw" "$err" "$module" "${args[@]}" "${report_args[@]}" || true
+        module_status=$MODULE_RUN_STATUS
+        apply_inline_suppressions <"$out_raw" >"$out_txt" 2>>"$err"
         restore_original_paths "$out_txt"
         parse_text_to_json "$lang" "$out_txt" "$out_json"
         attach_metrics_to_json "$out_json" "$metrics_dir"
@@ -2790,24 +2934,19 @@ run_lang(){
       ;;
     sarif)
       prepare_metrics_dir "$metrics_dir"
-      if UBS_METRICS_DIR="$metrics_dir" UBS_LANG="$lang" UBS_SKIP_TYPE_NARROWING="$SKIP_TYPE_NARROWING" \
-        "$BASH" "$module" "${args[@]}" --format=sarif >"$out_sarif" 2>"$err"; then
-        module_status=0
-      else
-        module_status=$?
-      fi
+      run_module "$out_sarif" "$err" "$module" "${args[@]}" --format=sarif || true
+      module_status=$MODULE_RUN_STATUS
       restore_original_paths "$out_sarif"
-      if need_cmd jq && jq -e . "$out_sarif" >/dev/null 2>&1; then
+      if [[ "$MODULE_TIMED_OUT" -eq 1 ]]; then
+        : # synthetic MODULE_TIMEOUT result is written after the case block
+      elif need_cmd jq && jq -e . "$out_sarif" >/dev/null 2>&1; then
         parse_sarif_to_json "$lang" "$out_sarif" "$out_json" || true
         attach_metrics_to_json "$out_json" "$metrics_dir" 2>/dev/null || true
       else
         prepare_metrics_dir "$metrics_dir"
-        if UBS_METRICS_DIR="$metrics_dir" UBS_LANG="$lang" UBS_SKIP_TYPE_NARROWING="$SKIP_TYPE_NARROWING" \
-          "$BASH" "$module" "${args[@]}" 2>>"$err" | apply_inline_suppressions >"$out_txt" 2>>"$err"; then
-          module_status=0
-        else
-          module_status="${PIPESTATUS[0]}"
-        fi
+        run_module "$out_raw" "$err" "$module" "${args[@]}" || true
+        module_status=$MODULE_RUN_STATUS
+        apply_inline_suppressions <"$out_raw" >"$out_txt" 2>>"$err"
         restore_original_paths "$out_txt"
         minimal_sarif_from_text "$lang" "$out_txt" >"$out_sarif"
         parse_text_to_json "$lang" "$out_txt" "$out_json"
@@ -2816,17 +2955,23 @@ run_lang(){
       ;;
     text|*)
       prepare_metrics_dir "$metrics_dir"
-      if UBS_METRICS_DIR="$metrics_dir" UBS_LANG="$lang" UBS_SKIP_TYPE_NARROWING="$SKIP_TYPE_NARROWING" \
-        "$BASH" "$module" "${args[@]}" 2>"$err" | apply_inline_suppressions >"$out_txt" 2>>"$err"; then
-        module_status=0
-      else
-        module_status="${PIPESTATUS[0]}"
-      fi
+      run_module "$out_raw" "$err" "$module" "${args[@]}" || true
+      module_status=$MODULE_RUN_STATUS
+      apply_inline_suppressions <"$out_raw" >"$out_txt" 2>>"$err"
       restore_original_paths "$out_txt"
       parse_text_to_json "$lang" "$out_txt" "$out_json"
       attach_metrics_to_json "$out_json" "$metrics_dir"
       ;;
   esac
+
+  # If the module blew its time budget, replace whatever partial/empty output it
+  # produced with an explicit, bounded MODULE_TIMEOUT diagnostic so the scan
+  # completes honestly (a visible critical finding) rather than hanging or
+  # silently dropping the module.
+  if [[ "${MODULE_TIMED_OUT:-0}" -eq 1 ]]; then
+    emit_module_timeout_result "$lang" "$fmt" "$out_json" "$out_txt" "$out_sarif"
+    module_status=1
+  fi
 
   local duration=$((SECONDS - start_ts))
   if [[ "${QUIET:-0}" -eq 0 ]]; then
